@@ -30,6 +30,15 @@ impl Tasks {
             .cloned()
             .collect()
     }
+
+    fn change_status(&mut self, id: Uuid, delta: i32) {
+        if let Some(card) = self.0.iter_mut().find(|e| e.id == id) {
+            let new_status =  card.status + delta;
+            if 1 <= new_status && new_status <= 3 {
+                card.status = new_status
+            }
+        }
+    }
 }
 
 impl Task {
@@ -47,6 +56,7 @@ impl Task {
 #[component]
 pub fn Board(cx: Scope) -> Element {
     let (tasks, set_tasks) = create_signal(cx, Tasks::new());
+    provide_context(cx, set_tasks);
     let filtered_tasks = move |status: i32| tasks.with(|tasks| tasks.filtered(status));
 
     let filtered_tasks1 = create_memo(cx, move |_| filtered_tasks(1));
@@ -87,6 +97,10 @@ fn Column(cx: Scope, text: &'static str, tasks: Memo<Vec<Task>>) -> Element {
 
 #[component]
 fn Card(cx: Scope, task: Task) -> Element {
+    let set_tasks = use_context::<WriteSignal<Tasks>>(cx).unwrap();
+    let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
+    let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
+
     view ! { cx,
         <div class="card">
             <div class="card-content">
@@ -101,8 +115,8 @@ fn Card(cx: Scope, task: Task) -> Element {
                 </div>
             </footer>
             <footer class="card-footer">
-                <button class="button card-footer-item">{ "◀︎" }</button>
-                <button class="button card-footer-item">{ "▶︎︎" }</button>
+                <button on:click=move_dec class="button card-footer-item">{ "◀︎" }</button>
+                <button on:click=move_inc class="button card-footer-item">{ "▶︎︎" }</button>
             </footer>
           </div>
     }
