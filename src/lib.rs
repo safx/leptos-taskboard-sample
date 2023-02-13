@@ -97,9 +97,26 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 
 #[component]
 pub fn Board(cx: Scope) -> impl IntoView {
-    let (tasks, set_tasks) = create_signal(cx, Tasks::new());
-    provide_context(cx, set_tasks);
-    let filtered_tasks = move |status: i32| tasks.with(|tasks| tasks.filtered(status));
+    #[cfg(any(feature = "csr", feature = "ssr"))]
+    let filtered_tasks = {
+        let tasks = create_resource(
+            cx,
+            move || (),
+            |_| get_board_state(),
+        );
+
+        #[cfg(feature = "csr")]
+        let filtered = move |status: i32| tasks
+            .read()
+            .unwrap_or(Ok(Tasks::new()))
+            .map(|tasks| tasks.filtered(status))
+            .expect("none error");
+
+        #[cfg(feature = "ssr")]
+        let filtered = move |status: i32| vec![];
+
+        filtered
+    };
 
     view ! { cx,
         <>
@@ -125,10 +142,8 @@ fn Control(cx: Scope) -> impl IntoView {
     let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
     let (mandays, set_mandays) = create_signal(cx, 0);
 
-    let set_tasks = use_context::<WriteSignal<Tasks>>(cx).unwrap();
-    let add_task = move |_| {
-        set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
-    };
+    #[cfg(any(feature = "csr", feature = "ssr"))]
+    let add_task = move |_| {};
 
     view! { cx,
         <>
@@ -161,10 +176,9 @@ fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoV
 
 #[component]
 fn Card(cx: Scope, task: Task) -> impl IntoView {
-    let set_tasks = use_context::<WriteSignal<Tasks>>(cx).unwrap();
-    let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
-    let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
-
+    #[cfg(any(feature = "csr", feature = "ssr"))]
+    let (move_dec, move_inc) = (move |_| {}, move |_| {});
+    
     view ! { cx,
         <div class="card">
             <div class="card-content">
