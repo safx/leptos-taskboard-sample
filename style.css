@@ -1,0 +1,15 @@
+.column:nth-child(1) {
+  background-color: #ed8077;
+}
+.column:nth-child(2) {
+  background-color: #4488c5;
+}
+.column:nth-child(3) {
+  background-color: #5eb5a6;
+}
+.card {
+  margin-bottom: 5px;
+}
+.card-footer-item {
+  padding-top: 0; padding-bottom: 0;
+}
