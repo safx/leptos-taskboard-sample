@@ -39,6 +39,10 @@ impl Tasks {
             }
         }
     }
+
+    fn add_task(&mut self, name: &str, assignee: &str, mandays: u32) {
+        self.0.push(Task::new(name, assignee, mandays, 1));
+    }
 }
 
 impl Task {
@@ -65,6 +69,9 @@ pub fn Board(cx: Scope) -> Element {
 
     view ! { cx,
         <div>
+            <div class="container">
+                <Control />
+            </div>
             <section class="section">
                 <div class="container">
                     <div class="columns">
@@ -74,6 +81,31 @@ pub fn Board(cx: Scope) -> Element {
                     </div>
                 </div>
              </section>
+        </div>
+    }
+}
+
+#[component]
+fn Control(cx: Scope) -> Element {
+    let (name, set_name) = create_signal(cx, "".to_string());
+    let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
+    let (mandays, set_mandays) = create_signal(cx, 0);
+
+    let set_tasks = use_context::<WriteSignal<Tasks>>(cx).unwrap();
+    let add_task = move |_| {
+        set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
+    };
+
+    view! { cx,
+        <div>
+            <input value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
+            <select value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
+                <option value="🐱">"🐱"</option>
+                <option value="🐶">"🐶"</option>
+                <option value="🐹">"🐹"</option>
+            </select>
+            <input value=mandays.get() on:change=move |e| set_mandays.update(|v| *v = event_target_value(&e).parse::<u32>().unwrap()) />
+            <button on:click=add_task>{ "Add" }</button>
         </div>
     }
 }
