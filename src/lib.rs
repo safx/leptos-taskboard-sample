@@ -58,35 +58,31 @@ impl Task {
 }
 
 #[component]
-pub fn Board(cx: Scope) -> Element {
+pub fn Board(cx: Scope) -> impl IntoView {
     let (tasks, set_tasks) = create_signal(cx, Tasks::new());
     provide_context(cx, set_tasks);
     let filtered_tasks = move |status: i32| tasks.with(|tasks| tasks.filtered(status));
 
-    let filtered_tasks1 = create_memo(cx, move |_| filtered_tasks(1));
-    let filtered_tasks2 = create_memo(cx, move |_| filtered_tasks(2));
-    let filtered_tasks3 = create_memo(cx, move |_| filtered_tasks(3));
-
     view ! { cx,
-        <div>
+        <>
             <div class="container">
                 <Control />
             </div>
             <section class="section">
                 <div class="container">
                     <div class="columns">
-                        <Column text="Open"        tasks=filtered_tasks1 />
-                        <Column text="In progress" tasks=filtered_tasks2 />
-                        <Column text="Completed"   tasks=filtered_tasks3 />
+                        <Column text="Open"        tasks=Signal::derive(cx, move || filtered_tasks(1)) />
+                        <Column text="In progress" tasks=Signal::derive(cx, move || filtered_tasks(2)) />
+                        <Column text="Completed"   tasks=Signal::derive(cx, move || filtered_tasks(3)) />
                     </div>
                 </div>
              </section>
-        </div>
+        </>
     }
 }
 
 #[component]
-fn Control(cx: Scope) -> Element {
+fn Control(cx: Scope) -> impl IntoView {
     let (name, set_name) = create_signal(cx, "".to_string());
     let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
     let (mandays, set_mandays) = create_signal(cx, 0);
@@ -97,7 +93,7 @@ fn Control(cx: Scope) -> Element {
     };
 
     view! { cx,
-        <div>
+        <>
             <input value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
             <select value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
                 <option value="🐱">"🐱"</option>
@@ -106,29 +102,27 @@ fn Control(cx: Scope) -> Element {
             </select>
             <input value=mandays.get() on:change=move |e| set_mandays.update(|v| *v = event_target_value(&e).parse::<u32>().unwrap()) />
             <button on:click=add_task>{ "Add" }</button>
-        </div>
+        </>
     }
 }
 
 #[component]
-fn Column(cx: Scope, text: &'static str, tasks: Memo<Vec<Task>>) -> Element {
+fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoView {
     view ! { cx,
         <div class="column">
             <div class="tags has-addons">
                 <span class="tag">{text}</span>
                 <span class="tag is-dark">{move || tasks.get().len()}</span>
             </div>
-            <div>
-                <For each=move ||tasks.get() key=|e| e.name.clone()>
-                    { move |cx, t: &Task| view! { cx, <Card task=t.clone() /> } }
-                </For>
-            </div>
+            <For each=move || tasks.get()
+                 key=|t| t.id
+                 view=move |t| view! { cx, <Card task=t/> } />
         </div>
     }
 }
 
 #[component]
-fn Card(cx: Scope, task: Task) -> Element {
+fn Card(cx: Scope, task: Task) -> impl IntoView {
     let set_tasks = use_context::<WriteSignal<Tasks>>(cx).unwrap();
     let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
     let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
