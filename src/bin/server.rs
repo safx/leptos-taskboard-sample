@@ -1,4 +1,7 @@
 use std::net::SocketAddr;
+use leptos::*;
+use leptos_axum::*;
+use std::sync::Arc;
 use axum::{routing::{get, post}, Router, response::Html};
 use axum::error_handling::HandleError;
 use tower_http::services::{ServeFile, ServeDir};
@@ -9,23 +12,9 @@ use taskboard::*;
 async fn main() {
     register_server_functions().unwrap();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-
-
-    async fn root() -> Html<&'static str> {
-        Html(
-         r#"<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="utf-8"/>
-                <link rel="stylesheet" href="/style.css">
-                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-            </head>
-            <script type="module">import init, { main } from './pkg/taskboard.js'; init().then(main);</script>
-            <body>
-            </body>
-            </html>"#)
-    }
+    let conf = get_configuration(Some("Cargo.toml")).await.unwrap();
+    let leptos_options = conf.leptos_options;
+    let addr = leptos_options.site_address.clone();
 
     let pkg_service = HandleError::new(ServeDir::new("./pkg"), handle_file_error);
     let style_service = HandleError::new(ServeFile::new("style.css"), handle_file_error);
@@ -38,8 +27,7 @@ async fn main() {
                .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
                .nest_service("/pkg", pkg_service)
                .nest_service("/style.css", style_service)
-               .route("/", get(root));
-
+               .fallback(leptos_axum::render_app_to_stream(leptos_options, |cx| view! { cx, <Board /> }));
 
     println!("listening on http://{}", &addr);
     axum::Server::bind(&addr)

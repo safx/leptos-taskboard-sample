@@ -1,4 +1,5 @@
 use leptos::*;
+use leptos_meta::*;
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
@@ -100,7 +101,7 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 
 #[component]
 pub fn Board(cx: Scope) -> impl IntoView {
-    #[cfg(any(feature = "csr", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let filtered_tasks = {
         let create_card: AddTaskAction = create_action(cx, |input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(cx, |input: &(Uuid, i32)| change_status(input.0, input.1));
@@ -111,7 +112,7 @@ pub fn Board(cx: Scope) -> impl IntoView {
             |_| get_board_state(),
         );
 
-        #[cfg(feature = "csr")]
+        #[cfg(feature = "hydrate")]
         let filtered = move |status: i32| tasks
             .read()
             .unwrap_or(Ok(Tasks::new()))
@@ -119,7 +120,11 @@ pub fn Board(cx: Scope) -> impl IntoView {
             .expect("none error");
 
         #[cfg(feature = "ssr")]
-        let filtered = move |status: i32| vec![];
+        let filtered = move |status: i32| tasks
+            .read()
+            .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
+            .map(|tasks| tasks.filtered(status))
+            .expect("none error");
 
         provide_context(cx, create_card);
         provide_context(cx, move_card);
@@ -127,8 +132,11 @@ pub fn Board(cx: Scope) -> impl IntoView {
         filtered
     };
 
+    provide_meta_context(cx);
     view ! { cx,
         <>
+            <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
+            <Stylesheet href="/style.css" />
             <div class="container">
                 <Control />
             </div>
@@ -151,7 +159,7 @@ fn Control(cx: Scope) -> impl IntoView {
     let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
     let (mandays, set_mandays) = create_signal(cx, 0);
 
-    #[cfg(any(feature = "csr", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let add_task = {
         let create_card = use_context::<AddTaskAction>(cx).unwrap();
         move |_| {
@@ -190,7 +198,7 @@ fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoV
 
 #[component]
 fn Card(cx: Scope, task: Task) -> impl IntoView {
-    #[cfg(any(feature = "csr", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>(cx).unwrap();
         let move_dec = move |_| move_card.dispatch((task.id, -1));
@@ -198,7 +206,7 @@ fn Card(cx: Scope, task: Task) -> impl IntoView {
         let move_inc = move |_| move_card.dispatch((task.id,  1));
         (move_dec, move_inc)
     };
-    
+
     view ! { cx,
         <div class="card">
             <div class="card-content">
@@ -220,11 +228,11 @@ fn Card(cx: Scope, task: Task) -> impl IntoView {
     }
 }
 
-#[cfg(feature = "csr")]
+#[cfg(feature = "hydrate")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
-#[cfg(feature = "csr")]
+#[cfg(feature = "hydrate")]
 #[wasm_bindgen]
-pub fn main() {
+pub fn hydrate() {
     mount_to_body(|cx| view! { cx, <Board /> })
 }
