@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 leptos = { version = "0.0.17", features = ["stable"] }
+uuid = { version = "1.2.2", features = ["v4", "js"] }
