@@ -101,54 +101,49 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 
 #[component]
 pub fn Board(cx: Scope) -> impl IntoView {
-    let filtered_tasks = {
+    let tasks = {
         let create_card: AddTaskAction = create_action(cx, |input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(cx, |input: &(Uuid, i32)| change_status(input.0, input.1));
-        let tasks = create_resource(
-            cx,
-            move || (create_card.version().get(), move_card.version().get()),
-            |_| get_board_state(),
-        );
-
-        #[cfg(feature = "hydrate")]
-        let filtered = move |status: i32| tasks
-            .read(cx)
-            .unwrap_or(Ok(Tasks::new()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
-
-        #[cfg(feature = "ssr")]
-        let filtered = move |status: i32| tasks
-            .read(cx)
-            .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
-
         provide_context(cx, create_card);
         provide_context(cx, move_card);
 
-        filtered
+        create_resource(
+            cx,
+            move || (create_card.version().get(), move_card.version().get()),
+            |_| get_board_state(),
+        )
     };
 
     provide_meta_context(cx);
     view ! { cx,
-        <>
-            <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-            <Stylesheet href="/style.css" />
-            <div class="container">
-                <Control />
-            </div>
-            <section class="section">
-                <div class="container">
-                    <div class="columns">
-                        <Column text="Open"        tasks=Signal::derive(cx, move || filtered_tasks(1)) />
-                        <Column text="In progress" tasks=Signal::derive(cx, move || filtered_tasks(2)) />
-                        <Column text="Completed"   tasks=Signal::derive(cx, move || filtered_tasks(3)) />
-                    </div>
-                </div>
-             </section>
-        </>
-    }
+       <>
+           <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
+           <Stylesheet href="/style.css" />
+           <div class="container">
+               <Control />
+           </div>
+           <Transition fallback=|| view! { cx, "Loading..." }>
+               {move || tasks.read(cx).map(|tasks| match tasks {
+                   Err(e) => view! { cx,  <div class="item-view">{format!("Error: {}", e)}</div> }.into_any(),
+                   Ok(ts) => {
+                       let t1 = ts.clone();
+                       let t2 = ts.clone();
+                       view! { cx,
+                           <section class="section">
+                               <div class="container">
+                                   <div class="columns">
+                                       <Column text="Open"        tasks=Signal::derive(cx, move || t1.filtered(1)) />
+                                       <Column text="In progress" tasks=Signal::derive(cx, move || t2.filtered(2)) />
+                                       <Column text="Completed"   tasks=Signal::derive(cx, move || ts.filtered(3)) />
+                                   </div>
+                               </div>
+                            </section>
+                       }.into_any()
+                   }
+               })}
+           </Transition>
+       </>
+   }
 }
 
 #[component]
