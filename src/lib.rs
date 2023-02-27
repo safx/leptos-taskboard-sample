@@ -1,10 +1,20 @@
 use leptos::*;
 use uuid::Uuid;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug)]
+#[cfg(feature = "ssr")]
+use once_cell::sync::Lazy;
+
+#[cfg(feature = "ssr")]
+use std::sync::Mutex;
+
+#[cfg(feature = "ssr")]
+static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug)]
 pub struct Task {
     id: Uuid,
     name: String,
@@ -55,6 +65,34 @@ impl Task {
             status,
         }
     }
+}
+
+#[cfg(feature = "ssr")]
+pub fn register_server_functions() -> Result<(), ServerFnError> {
+    GetBoardState::register()?;
+    AddTask::register()?;
+    ChangeStatus::register()?;
+    Ok(())
+}
+
+#[server(GetBoardState, "/api")]
+pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
+    let board = BOARD.lock().unwrap();
+    Ok(board.clone())
+}
+
+#[server(AddTask, "/api")]
+pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
+    let mut board = BOARD.lock().unwrap();
+    board.add_task(&name, &assignee, mandays);
+    Ok(())
+}
+
+#[server(ChangeStatus, "/api")]
+pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
+    let mut board = BOARD.lock().unwrap();
+    board.change_status(id, delta);
+    Ok(id)
 }
 
 #[component]
