@@ -1,12 +1,15 @@
 use std::net::SocketAddr;
-use axum::{routing::get, Router, response::Html};
+use axum::{routing::{get, post}, Router, response::Html};
 use axum::error_handling::HandleError;
 use axum::handler::HandlerWithoutStateExt;
 use tower_http::services::{ServeFile, ServeDir};
 use http::StatusCode;
+use taskboard::*;
 
 #[tokio::main]
 async fn main() {
+    register_server_functions().unwrap();
+
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 
     async fn root() -> Html<&'static str> {
@@ -32,6 +35,7 @@ async fn main() {
     }
 
     let app = Router::new()
+                  .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
                   .nest_service("/pkg", pkg_service)
                   .nest_service("/style.css", style_service)
                   .route("/", get(root));
