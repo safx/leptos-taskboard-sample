@@ -147,3 +147,12 @@ fn Card(cx: Scope, task: Task) -> impl IntoView {
           </div>
     }
 }
+
+#[cfg(feature = "csr")]
+use wasm_bindgen::prelude::wasm_bindgen;
+
+#[cfg(feature = "csr")]
+#[wasm_bindgen]
+pub fn main() {
+    mount_to_body(|cx| view! { cx, <Board /> })
+}
