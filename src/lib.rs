@@ -75,6 +75,9 @@ pub fn register_server_functions() -> Result<(), ServerFnError> {
     Ok(())
 }
 
+type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
+type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
+
 #[server(GetBoardState, "/api")]
 pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
     let board = BOARD.lock().unwrap();
@@ -98,9 +101,11 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 #[component]
 pub fn Board(cx: Scope) -> impl IntoView {
     let filtered_tasks = {
+        let create_card: AddTaskAction = create_action(cx, |input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
+        let move_card: ChangeStatusAction = create_action(cx, |input: &(Uuid, i32)| change_status(input.0, input.1));
         let tasks = create_resource(
             cx,
-            move || (),
+            move || (create_card.version().get(), move_card.version().get()),
             |_| get_board_state(),
         );
 
@@ -113,6 +118,9 @@ pub fn Board(cx: Scope) -> impl IntoView {
 
         #[cfg(feature = "ssr")]
         let filtered = move |status: i32| vec![];
+
+        provide_context(cx, create_card);
+        provide_context(cx, move_card);
 
         filtered
     };
@@ -141,7 +149,12 @@ fn Control(cx: Scope) -> impl IntoView {
     let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
     let (mandays, set_mandays) = create_signal(cx, 0);
 
-    let add_task = move |_| {};
+    let add_task = {
+        let create_card = use_context::<AddTaskAction>(cx).unwrap();
+        move |_| {
+            create_card.dispatch((name.get(), assignee.get(), mandays.get()));
+        }
+    };
 
     view! { cx,
         <>
@@ -174,8 +187,14 @@ fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoV
 
 #[component]
 fn Card(cx: Scope, task: Task) -> impl IntoView {
-    let (move_dec, move_inc) = (move |_| {}, move |_| {});
-
+    let (move_dec, move_inc) = {
+        let move_card = use_context::<ChangeStatusAction>(cx).unwrap();
+        let move_dec = move |_| move_card.dispatch((task.id, -1));
+        let move_card = use_context::<ChangeStatusAction>(cx).unwrap();
+        let move_inc = move |_| move_card.dispatch((task.id,  1));
+        (move_dec, move_inc)
+    };
+    
     view ! { cx,
         <div class="card">
             <div class="card-content">
