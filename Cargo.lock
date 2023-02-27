@@ -1910,6 +1910,7 @@ dependencies = [
  "http",
  "leptos",
  "leptos_axum",
+ "leptos_meta",
  "once_cell",
  "serde",
  "serde_json",
