@@ -1,3 +1,4 @@
+use wasm_bindgen::UnwrapThrowExt;
 use leptos::*;
 use leptos_meta::*;
 use uuid::Uuid;
@@ -10,7 +11,10 @@ use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
 #[cfg(feature = "ssr")]
-static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
+pub static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
+
+#[cfg(feature = "ssr")]
+pub static BOARD_CHANNEL: Lazy<broadcaster::BroadcastChannel<Tasks>> = Lazy::new(|| broadcaster::BroadcastChannel::new());
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
@@ -89,6 +93,7 @@ pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
 pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
     let mut board = BOARD.lock().unwrap();
     board.add_task(&name, &assignee, mandays);
+    _ = BOARD_CHANNEL.send(&*board).await;
     Ok(())
 }
 
@@ -96,6 +101,7 @@ pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<()
 pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
     let mut board = BOARD.lock().unwrap();
     board.change_status(id, delta);
+    _ = BOARD_CHANNEL.send(&*board).await;
     Ok(id)
 }
 
@@ -104,25 +110,32 @@ pub fn Board(cx: Scope) -> impl IntoView {
     let filtered_tasks = {
         let create_card: AddTaskAction = create_action(cx, |input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(cx, |input: &(Uuid, i32)| change_status(input.0, input.1));
-        let tasks = create_resource(
-            cx,
-            move || (create_card.version().get(), move_card.version().get()),
-            |_| get_board_state(),
-        );
-
-        #[cfg(feature = "hydrate")]
-        let filtered = move |status: i32| tasks
-            .read(cx)
-            .unwrap_or(Ok(Tasks::new()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
 
         #[cfg(feature = "ssr")]
-        let filtered = move |status: i32| tasks
-            .read(cx)
-            .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
+        let filtered = move |status: i32| vec![];
+
+        #[cfg(feature = "hydrate")]
+        let filtered = {
+            use futures::StreamExt;
+
+            let mut source = gloo_net::eventsource::futures::EventSource::new("/api/events")
+                .expect_throw("couldn't connect to SSE stream");
+            let tasks = create_signal_from_stream(
+                cx,
+                source.subscribe("update").unwrap().map(|value| {
+                    let string = value
+                        .expect_throw("no message event")
+                        .1
+                        .data()
+                        .as_string()
+                        .expect_throw("expected string value");
+                    serde_json::from_str::<Tasks>(&string).expect_throw("expected to be deserialized")
+                }),
+            );
+            on_cleanup(cx, move || source.close());
+
+            move |status: i32| tasks.get().map(|tasks| tasks.filtered(status)).unwrap_or(vec![])
+        };
 
         provide_context(cx, create_card);
         provide_context(cx, move_card);
