@@ -42,6 +42,7 @@ impl Tasks {
             .collect()
     }
 
+    #[cfg(not(feature = "hydrate"))]
     fn change_status(&mut self, id: Uuid, delta: i32) {
         if let Some(card) = self.0.iter_mut().find(|e| e.id == id) {
             let new_status =  card.status + delta;
@@ -51,6 +52,7 @@ impl Tasks {
         }
     }
 
+    #[cfg(not(feature = "hydrate"))]
     fn add_task(&mut self, name: &str, assignee: &str, mandays: u32) {
         self.0.push(Task::new(name, assignee, mandays, 1));
     }
@@ -66,14 +68,6 @@ impl Task {
             status,
         }
     }
-}
-
-#[cfg(feature = "ssr")]
-pub fn register_server_functions() -> Result<(), ServerFnError> {
-    GetBoardState::register()?;
-    AddTask::register()?;
-    ChangeStatus::register()?;
-    Ok(())
 }
 
 type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
@@ -114,14 +108,14 @@ pub fn Board(cx: Scope) -> impl IntoView {
 
         #[cfg(feature = "hydrate")]
         let filtered = move |status: i32| tasks
-            .read()
+            .read(cx)
             .unwrap_or(Ok(Tasks::new()))
             .map(|tasks| tasks.filtered(status))
             .expect("none error");
 
         #[cfg(feature = "ssr")]
         let filtered = move |status: i32| tasks
-            .read()
+            .read(cx)
             .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
             .map(|tasks| tasks.filtered(status))
             .expect("none error");
@@ -191,7 +185,7 @@ fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoV
             </div>
             <For each=move || tasks.get()
                  key=|t| t.id
-                 view=move |t| view! { cx, <Card task=t/> } />
+                 view=move |cx, t| view! { cx, <Card task=t/> } />
         </div>
     }
 }

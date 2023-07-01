@@ -1,8 +1,5 @@
-use std::net::SocketAddr;
 use leptos::*;
-use leptos_axum::*;
-use std::sync::Arc;
-use axum::{routing::{get, post}, Router, response::Html};
+use axum::{routing::post, Router};
 use axum::error_handling::HandleError;
 use tower_http::services::{ServeFile, ServeDir};
 use http::StatusCode;
@@ -10,11 +7,9 @@ use taskboard::*;
 
 #[tokio::main]
 async fn main() {
-    register_server_functions().unwrap();
-
     let conf = get_configuration(Some("Cargo.toml")).await.unwrap();
     let leptos_options = conf.leptos_options;
-    let addr = leptos_options.site_address.clone();
+    let addr = leptos_options.site_addr.clone();
 
     let pkg_service = HandleError::new(ServeDir::new("./pkg"), handle_file_error);
     let style_service = HandleError::new(ServeFile::new("style.css"), handle_file_error);
