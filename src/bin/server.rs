@@ -1,8 +1,6 @@
 use leptos::*;
 use axum::{routing::post, Router};
-use axum::error_handling::HandleError;
 use tower_http::services::{ServeFile, ServeDir};
-use http::StatusCode;
 use taskboard::*;
 
 #[tokio::main]
@@ -11,12 +9,8 @@ async fn main() {
     let leptos_options = conf.leptos_options;
     let addr = leptos_options.site_addr.clone();
 
-    let pkg_service = HandleError::new(ServeDir::new("./pkg"), handle_file_error);
-    let style_service = HandleError::new(ServeFile::new("style.css"), handle_file_error);
-
-    async fn handle_file_error(err: std::io::Error) -> (StatusCode, String) {
-        (StatusCode::NOT_FOUND, format!("File Not Found: {}", err))
-    }
+    let pkg_service = ServeDir::new("./pkg");
+    let style_service = ServeFile::new("style.css");
 
     let app = Router::new()
                .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
