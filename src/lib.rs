@@ -94,40 +94,39 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 }
 
 #[component]
-pub fn Board(cx: Scope) -> impl IntoView {
+pub fn Board() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let filtered_tasks = {
-        let create_card: AddTaskAction = create_action(cx, |input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
-        let move_card: ChangeStatusAction = create_action(cx, |input: &(Uuid, i32)| change_status(input.0, input.1));
+        let create_card: AddTaskAction = create_action(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
+        let move_card: ChangeStatusAction = create_action(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
         let tasks = create_resource(
-            cx,
             move || (create_card.version().get(), move_card.version().get()),
             |_| get_board_state(),
         );
 
         #[cfg(feature = "hydrate")]
         let filtered = move |status: i32| tasks
-            .read(cx)
+            .get()
             .unwrap_or(Ok(Tasks::new()))
             .map(|tasks| tasks.filtered(status))
             .expect("none error");
 
         #[cfg(feature = "ssr")]
         let filtered = move |status: i32| tasks
-            .read(cx)
+            .get()
             .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
             .map(|tasks| tasks.filtered(status))
             .expect("none error");
 
-        provide_context(cx, create_card);
-        provide_context(cx, move_card);
+        provide_context(create_card);
+        provide_context(move_card);
 
         filtered
     };
 
-    provide_meta_context(cx);
-    view ! { cx,
+    provide_meta_context();
+    view ! {
         <>
             <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
             <Stylesheet href="/style.css" />
@@ -137,9 +136,9 @@ pub fn Board(cx: Scope) -> impl IntoView {
             <section class="section">
                 <div class="container">
                     <div class="columns">
-                        <Column text="Open"        tasks=Signal::derive(cx, move || filtered_tasks(1)) />
-                        <Column text="In progress" tasks=Signal::derive(cx, move || filtered_tasks(2)) />
-                        <Column text="Completed"   tasks=Signal::derive(cx, move || filtered_tasks(3)) />
+                        <Column text="Open"        tasks=Signal::derive(move || filtered_tasks(1)) />
+                        <Column text="In progress" tasks=Signal::derive(move || filtered_tasks(2)) />
+                        <Column text="Completed"   tasks=Signal::derive(move || filtered_tasks(3)) />
                     </div>
                 </div>
              </section>
@@ -148,20 +147,20 @@ pub fn Board(cx: Scope) -> impl IntoView {
 }
 
 #[component]
-fn Control(cx: Scope) -> impl IntoView {
-    let (name, set_name) = create_signal(cx, "".to_string());
-    let (assignee, set_assignee) = create_signal(cx, "🐱".to_string());
-    let (mandays, set_mandays) = create_signal(cx, 0);
+fn Control() -> impl IntoView {
+    let (name, set_name) = create_signal("".to_string());
+    let (assignee, set_assignee) = create_signal("🐱".to_string());
+    let (mandays, set_mandays) = create_signal(0);
 
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let add_task = {
-        let create_card = use_context::<AddTaskAction>(cx).unwrap();
+        let create_card = use_context::<AddTaskAction>().unwrap();
         move |_| {
             create_card.dispatch((name.get(), assignee.get(), mandays.get()));
         }
     };
 
-    view! { cx,
+    view! {
         <>
             <input value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
             <select value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
@@ -176,8 +175,8 @@ fn Control(cx: Scope) -> impl IntoView {
 }
 
 #[component]
-fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoView {
-    view ! { cx,
+fn Column(text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoView {
+    view ! {
         <div class="column">
             <div class="tags has-addons">
                 <span class="tag">{text}</span>
@@ -185,23 +184,23 @@ fn Column(cx: Scope, text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoV
             </div>
             <For each=move || tasks.get()
                  key=|t| t.id
-                 view=move |cx, t| view! { cx, <Card task=t/> } />
+                 children=move |t| view! { <Card task=t/> } />
         </div>
     }
 }
 
 #[component]
-fn Card(cx: Scope, task: Task) -> impl IntoView {
+fn Card(task: Task) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
-        let move_card = use_context::<ChangeStatusAction>(cx).unwrap();
+        let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_dec = move |_| move_card.dispatch((task.id, -1));
-        let move_card = use_context::<ChangeStatusAction>(cx).unwrap();
+        let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_inc = move |_| move_card.dispatch((task.id,  1));
         (move_dec, move_inc)
     };
 
-    view ! { cx,
+    view ! {
         <div class="card">
             <div class="card-content">
                 { &task.name }
@@ -228,5 +227,5 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen]
 pub fn hydrate() {
-    mount_to_body(|cx| view! { cx, <Board /> })
+    mount_to_body(|| view! { <Board /> })
 }

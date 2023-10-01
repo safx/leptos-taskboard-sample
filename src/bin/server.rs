@@ -16,7 +16,7 @@ async fn main() {
                .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
                .nest_service("/pkg", pkg_service)
                .nest_service("/style.css", style_service)
-               .fallback(leptos_axum::render_app_to_stream(leptos_options, |cx| view! { cx, <Board /> }));
+               .fallback(leptos_axum::render_app_to_stream(leptos_options, || view! { <Board /> }));
 
     println!("listening on http://{}", &addr);
     axum::Server::bind(&addr)
