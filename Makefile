@@ -2,7 +2,7 @@ all: client server
 
 .PHONY: trunk
 trunk:
-	trunk build --filehash=false --release
+	trunk build --filehash=false --features=csr --release
 
 .PHONY: client
 client:

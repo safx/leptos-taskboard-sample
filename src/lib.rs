@@ -70,7 +70,9 @@ impl Task {
     }
 }
 
+#[cfg(any(feature = "hydrate", feature = "ssr"))]
 type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
+#[cfg(any(feature = "hydrate", feature = "ssr"))]
 type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
 
 #[server(GetBoardState, "/api")]
@@ -125,6 +127,13 @@ pub fn Board() -> impl IntoView {
         filtered
     };
 
+    #[cfg(feature = "csr")]
+    let filtered_tasks = {
+        let (tasks, set_tasks) = create_signal(Tasks::new());
+        provide_context(set_tasks);
+        move |status: i32| tasks.with(|tasks| tasks.filtered(status))
+    };
+
     provide_meta_context();
     view ! {
         <>
@@ -157,6 +166,14 @@ fn Control() -> impl IntoView {
         let create_card = use_context::<AddTaskAction>().unwrap();
         move |_| {
             create_card.dispatch((name.get(), assignee.get(), mandays.get()));
+        }
+    };
+
+    #[cfg(feature = "csr")]
+    let add_task = {
+        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
+        move |_| {
+            set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
         }
     };
 
@@ -197,6 +214,14 @@ fn Card(task: Task) -> impl IntoView {
         let move_dec = move |_| move_card.dispatch((task.id, -1));
         let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_inc = move |_| move_card.dispatch((task.id,  1));
+        (move_dec, move_inc)
+    };
+
+    #[cfg(feature = "csr")]
+        let (move_dec, move_inc) = {
+        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
+        let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
+        let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
         (move_dec, move_inc)
     };
 
