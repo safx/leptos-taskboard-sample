@@ -75,20 +75,20 @@ type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
 #[cfg(any(feature = "hydrate", feature = "ssr"))]
 type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
 
-#[server(GetBoardState, "/api")]
+#[server]
 pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
     let board = BOARD.lock().unwrap();
     Ok(board.clone())
 }
 
-#[server(AddTask, "/api")]
+#[server]
 pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
     let mut board = BOARD.lock().unwrap();
     board.add_task(&name, &assignee, mandays);
     Ok(())
 }
 
-#[server(ChangeStatus, "/api")]
+#[server]
 pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
     let mut board = BOARD.lock().unwrap();
     board.change_status(id, delta);
@@ -102,7 +102,7 @@ pub fn Board() -> impl IntoView {
         let create_card: AddTaskAction = create_action(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
-        let tasks = create_resource(
+        let tasks = Resource::new(
             move || (create_card.version().get(), move_card.version().get()),
             |_| get_board_state(),
         );
