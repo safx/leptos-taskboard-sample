@@ -1,7 +1,7 @@
-use leptos::*;
+use leptos::{get_configuration, view};
 use axum::{routing::post, Router};
 use tower_http::services::{ServeFile, ServeDir};
-use taskboard::*;
+use taskboard::Board;
 
 #[tokio::main]
 async fn main() {

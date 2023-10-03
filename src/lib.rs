@@ -1,5 +1,5 @@
 use leptos::*;
-use leptos_meta::*;
+use leptos_meta::{Stylesheet, provide_meta_context};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
@@ -145,9 +145,9 @@ pub fn Board() -> impl IntoView {
             <section class="section">
                 <div class="container">
                     <div class="columns">
-                        <Column text="Open"        tasks=Signal::derive(move || filtered_tasks(1)) />
-                        <Column text="In progress" tasks=Signal::derive(move || filtered_tasks(2)) />
-                        <Column text="Completed"   tasks=Signal::derive(move || filtered_tasks(3)) />
+                        <Column text="Open"        tasks=move || filtered_tasks(1) />
+                        <Column text="In progress" tasks=move || filtered_tasks(2) />
+                        <Column text="Completed"   tasks=move || filtered_tasks(3) />
                     </div>
                 </div>
              </section>
@@ -192,7 +192,7 @@ fn Control() -> impl IntoView {
 }
 
 #[component]
-fn Column(text: &'static str, tasks: Signal<Vec<Task>>) -> impl IntoView {
+fn Column(#[prop(into)] tasks: Signal<Vec<Task>>, text: &'static str) -> impl IntoView {
     view ! {
         <div class="column">
             <div class="tags has-addons">
@@ -212,7 +212,6 @@ fn Card(task: Task) -> impl IntoView {
     let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_dec = move |_| move_card.dispatch((task.id, -1));
-        let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_inc = move |_| move_card.dispatch((task.id,  1));
         (move_dec, move_inc)
     };
