@@ -106,25 +106,22 @@ pub fn Board() -> impl IntoView {
             move || (create_card.version().get(), move_card.version().get()),
             |_| get_board_state(),
         );
-
-        #[cfg(feature = "hydrate")]
-        let filtered = move |status: i32| tasks
-            .get()
-            .unwrap_or(Ok(Tasks::new()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
-
-        #[cfg(feature = "ssr")]
-        let filtered = move |status: i32| tasks
-            .get()
-            .unwrap_or(Ok(BOARD.lock().unwrap().clone()))
-            .map(|tasks| tasks.filtered(status))
-            .expect("none error");
-
         provide_context(create_card);
         provide_context(move_card);
 
-        filtered
+        move |status: i32| {
+            #[cfg(feature = "hydrate")]
+            let default_func = || Ok(Tasks::new());
+
+            #[cfg(feature = "ssr")]
+            let default_func = || Ok(BOARD.lock().unwrap().clone());
+
+            tasks
+                .get()
+                .unwrap_or_else(default_func)
+                .map(|tasks| tasks.filtered(status))
+                .expect("none error")
+        }
     };
 
     #[cfg(feature = "csr")]
