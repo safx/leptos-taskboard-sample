@@ -3,13 +3,13 @@ use leptos_meta::{Stylesheet, provide_meta_context};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", feature = "worker"))]
 use once_cell::sync::Lazy;
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", feature = "worker"))]
 use std::sync::Mutex;
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", feature = "worker"))]
 static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -70,9 +70,9 @@ impl Task {
     }
 }
 
-#[cfg(any(feature = "hydrate", feature = "ssr"))]
+#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
 type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
-#[cfg(any(feature = "hydrate", feature = "ssr"))]
+#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
 type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
 
 #[server]
@@ -97,8 +97,8 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 
 #[component]
 pub fn Board() -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let filtered_tasks = {
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+        let filtered_tasks = {
         let create_card: AddTaskAction = create_action(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
@@ -111,10 +111,10 @@ pub fn Board() -> impl IntoView {
 
         move |status: i32| {
             #[cfg(feature = "hydrate")]
-            let default_func = || Ok(Tasks::new());
+                let default_func = || Ok(Tasks::new());
 
-            #[cfg(feature = "ssr")]
-            let default_func = || Ok(BOARD.lock().unwrap().clone());
+            #[cfg(any(feature = "ssr", feature = "worker"))]
+                let default_func = || Ok(BOARD.lock().unwrap().clone());
 
             tasks
                 .get()
@@ -125,7 +125,7 @@ pub fn Board() -> impl IntoView {
     };
 
     #[cfg(feature = "csr")]
-    let filtered_tasks = {
+        let filtered_tasks = {
         let (tasks, set_tasks) = create_signal(Tasks::new());
         provide_context(set_tasks);
         move |status: i32| tasks.with(|tasks| tasks.filtered(status))
@@ -135,7 +135,7 @@ pub fn Board() -> impl IntoView {
     view ! {
         <>
             <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-            <Stylesheet href="/style.css" />
+            <Stylesheet href="/pkg/style.css" />
             <div class="container">
                 <Control />
             </div>
@@ -158,8 +158,8 @@ fn Control() -> impl IntoView {
     let (assignee, set_assignee) = create_signal("🐱".to_string());
     let (mandays, set_mandays) = create_signal(0);
 
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let add_task = {
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+        let add_task = {
         let create_card = use_context::<AddTaskAction>().unwrap();
         move |_| {
             create_card.dispatch((name.get(), assignee.get(), mandays.get()));
@@ -167,7 +167,7 @@ fn Control() -> impl IntoView {
     };
 
     #[cfg(feature = "csr")]
-    let add_task = {
+        let add_task = {
         let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
         move |_| {
             set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
@@ -205,8 +205,8 @@ fn Column(#[prop(into)] tasks: Signal<Vec<Task>>, text: &'static str) -> impl In
 
 #[component]
 fn Card(task: Task) -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let (move_dec, move_inc) = {
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+        let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_dec = move |_| move_card.dispatch((task.id, -1));
         let move_inc = move |_| move_card.dispatch((task.id,  1));
@@ -249,4 +249,129 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[wasm_bindgen]
 pub fn hydrate() {
     mount_to_body(|| view! { <Board /> })
+}
+
+#[cfg(feature = "worker")]
+use worker::event;
+
+#[cfg(feature = "worker")]
+#[event(fetch)]
+async fn main(req: worker::Request, env: worker::Env, _ctx: worker::Context) -> worker::Result<worker::Response> {
+    use std::ffi::OsStr;
+    use std::path::Path;
+    use worker::{Router, Response};
+
+    use futures::StreamExt;
+    use leptos_server::{Payload, server_fn_by_path};
+    use leptos_meta::{MetaContext, generate_head_metadata_separated};
+
+    let _ = GetBoardState::register_explicit();
+    let _ = AddTask::register_explicit();
+    let _ = ChangeStatus::register_explicit();
+
+    console_error_panic_hook::set_once();
+
+    let router = Router::new();
+    router
+        .get_async("/", |_req, _ctx| async move {
+            let (bundle, runtime) =
+                leptos::leptos_dom::ssr::render_to_stream_with_prefix_undisposed_with_context_and_block_replacement(
+                    || Board().into_view(),
+                    || generate_head_metadata_separated().1.into(),
+                    || (),
+                    true
+                );
+
+            let meta = use_context::<MetaContext>();
+            let head_parts = meta
+                .as_ref()
+                .map(|meta| meta.dehydrate())
+                .unwrap_or_default();
+
+            let head = format!(r#"<!doctype html>
+            <html lang="ja">
+              <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                {head_parts}
+                <link rel="modulepreload" href="/pkg/taskboard.js">
+                <link rel="preload" href="/pkg/taskboard_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
+                    <script type="module">
+                        function idle(c) {{
+                            if ("requestIdleCallback" in window) {{
+                                window.requestIdleCallback(c);
+                            }} else {{
+                                c();
+                            }}
+                        }}
+                        idle(() => {{
+                            import('/pkg/taskboard.js')
+                                .then(mod => {{
+                                    mod.default('/pkg/taskboard_bg.wasm').then(() => mod.hydrate());
+                                }})
+                        }});
+                    </script>
+              </head>
+              "#);
+            let tail = "</body></html>";
+
+            let mut html: String = head;
+            {
+                let mut shell = Box::pin(bundle);
+                while let Some(fragment) = shell.next().await {
+                    html += &fragment;
+                }
+                runtime.dispose();
+            }
+            html += &tail;
+
+            let mut response = Response::from_html(html)?;
+            response.headers_mut()
+                .set("Content-Type", "text/html")?;
+            Ok(response)
+        })
+        .get_async("/pkg/:name", |_req, ctx| async move {
+            let name = ctx.param("name").map(Path::new).expect("name expected");
+            let store = ctx.env.kv("__STATIC_CONTENT")?;
+            let list = store.list().execute().await?;
+            let Some(found) = list.keys.iter().map(|key| Path::new(&key.name)).find(|p| p.file_stem().map(Path::new).unwrap().file_stem().unwrap() == name.file_stem().unwrap() && p.extension() == name.extension()) else {
+                return Response::error("Bad Request", 400);
+            };
+
+            let content_type = match found.extension().map(OsStr::to_string_lossy).unwrap_or_default().as_ref() {
+                "css" => "text/css",
+                "js" => "text/javascript",
+                "json" => "application/json",
+                "txt" => "text/plain",
+                "wasm" => "application/wasm",
+                _ => "application/octet-stream"
+            };
+
+            let Some(content) = store.get(&found.to_string_lossy()).bytes().await? else {
+                return Response::error("Bad Request", 400);
+            };
+            let mut response = Response::from_bytes(content)?;
+            let _ = response.headers_mut()
+                .set("Content-Type", content_type);
+            Ok(response)
+        })
+        .post_async("/api/:name", |mut req, ctx| async move {
+            let name = ctx.param("name").expect("name expected");
+            let Some(server_fn) = server_fn_by_path(name.as_str()) else {
+                return Response::error("Bad Request", 400)
+            };
+            let body_ref = req.text().await?;
+            let serialized = server_fn.call((), body_ref.as_bytes()).await.map_err(|e| worker::Error::from(e.to_string()))?;
+            match serialized {
+                Payload::Url(data) => {
+                    let mut response = Response::from_bytes(data.into())?;
+                    let _ = response.headers_mut()
+                        .set("Content-Type", "application/x-www-form-urlencoded");
+                    Ok(response)
+                }
+                _ => Response::error("Bad Request", 400)
+            }
+        })
+        .run(req, env)
+        .await
 }

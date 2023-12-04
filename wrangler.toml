@@ -1,0 +1,10 @@
+name = "taskboard-worker"
+compatibility_date = "2022-07-12"
+main = "build/worker/shim.mjs"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release -- --features=worker"
+watch_dir = "src"
+
+[site]
+bucket = "pkg"
