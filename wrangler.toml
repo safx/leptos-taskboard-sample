@@ -8,3 +8,7 @@ watch_dir = "src"
 
 [site]
 bucket = "pkg"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "taskboard"

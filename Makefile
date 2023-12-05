@@ -1,9 +1,5 @@
 all: client workers
 
-.PHONY: trunk
-trunk:
-	trunk build --filehash=false --features=csr --release
-
 .PHONY: client
 client:
 	wasm-pack build --target=web --features=hydrate --release

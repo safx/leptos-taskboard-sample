@@ -3,16 +3,19 @@ use leptos_meta::{Stylesheet, provide_meta_context};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
-#[cfg(any(feature = "ssr", feature = "worker"))]
+#[cfg(feature = "ssr")]
 use once_cell::sync::Lazy;
 
 #[cfg(any(feature = "ssr", feature = "worker"))]
 use std::sync::Mutex;
 
-#[cfg(any(feature = "ssr", feature = "worker"))]
+#[cfg(feature = "worker")]
+use std::sync::Arc;
+
+#[cfg(feature = "ssr")]
 static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug)]
@@ -25,12 +28,13 @@ pub struct Task {
 }
 
 impl Tasks {
+    #[cfg(feature = "ssr")]
     fn new() -> Self {
         Self(vec![
-            Task::new("Task 1", "🐱", 3, 1),
-            Task::new("Task 2", "🐶", 2, 1),
-            Task::new("Task 3", "🐱", 1, 2),
-            Task::new("Task 4", "🐹", 3, 3),
+            Task::new("Task 1".to_string(), "🐱".to_string(), 3, 1),
+            Task::new("Task 2".to_string(), "🐶".to_string(), 2, 1),
+            Task::new("Task 3".to_string(), "🐱".to_string(), 1, 2),
+            Task::new("Task 4".to_string(), "🐹".to_string(), 3, 3),
         ])
     }
 
@@ -42,7 +46,7 @@ impl Tasks {
             .collect()
     }
 
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(feature = "ssr")]
     fn change_status(&mut self, id: Uuid, delta: i32) {
         if let Some(card) = self.0.iter_mut().find(|e| e.id == id) {
             let new_status =  card.status + delta;
@@ -52,18 +56,19 @@ impl Tasks {
         }
     }
 
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(feature = "ssr")]
     fn add_task(&mut self, name: &str, assignee: &str, mandays: u32) {
-        self.0.push(Task::new(name, assignee, mandays, 1));
+        self.0.push(Task::new(name.to_string(), assignee.to_string(), mandays, 1));
     }
 }
 
 impl Task {
-    fn new(name: &str, assignee: &str, mandays: u32, status: i32) -> Self {
+    #[cfg(any(feature = "ssr", feature = "worker"))]
+    fn new(name: String, assignee: String, mandays: u32, status: i32) -> Self {
         Self {
             id: Uuid::new_v4(),
-            name: name.to_string(),
-            assignee: assignee.to_string(),
+            name,
+            assignee,
             mandays,
             status,
         }
@@ -77,78 +82,112 @@ type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
 
 #[server]
 pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
-    let board = BOARD.lock().unwrap();
-    Ok(board.clone())
+    #[cfg(any(feature = "ssr"))]
+    {
+        let board = BOARD.lock().unwrap();
+        Ok(board.clone())
+    }
+
+    #[cfg(feature = "worker")]
+    {
+        let tasks = use_context::<Arc<Mutex<worker::Env>>>().expect("context expected").lock().unwrap().d1("DB")?
+            .prepare("SELECT * FROM tasks")
+            .all().await?
+            .results()?;
+        Ok(Tasks(tasks))
+    }
 }
 
 #[server]
 pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
-    let mut board = BOARD.lock().unwrap();
-    board.add_task(&name, &assignee, mandays);
-    Ok(())
+    #[cfg(any(feature = "ssr"))]
+    {
+        let mut board = BOARD.lock().unwrap();
+        board.add_task(&name, &assignee, mandays);
+        Ok(())
+    }
+
+    #[cfg(feature = "worker")]
+    {
+        let task = Task::new(name, assignee, mandays, 1);
+        worker::console_log!("{:?}", task);
+        let _result = use_context::<Arc<Mutex<worker::Env>>>().expect("context expected").lock().unwrap().d1("DB")?
+        .prepare("INSERT INTO tasks (id, name, assignee, mandays, status) VALUES (?1, ?2, ?3, ?4, ?5)")
+        .bind(&[task.id.to_string().into(), task.name.into(), task.assignee.into(), task.mandays.into(), task.status.into()])?
+        .run().await?;
+        Ok(())
+    }
 }
 
 #[server]
 pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
-    let mut board = BOARD.lock().unwrap();
-    board.change_status(id, delta);
-    Ok(id)
+    #[cfg(any(feature = "ssr"))]
+    {
+        let mut board = BOARD.lock().unwrap();
+        board.change_status(id, delta);
+        Ok(id)
+    }
+
+    #[cfg(feature = "worker")]
+    {
+        let Some(task) = use_context::<Arc<Mutex<worker::Env>>>().expect("context expected").lock().unwrap().d1("DB")?
+            .prepare("SELECT * FROM tasks where id = ?1")
+            .bind(&[id.to_string().into()])?
+            .first::<Task>(None).await? else {
+            return Err(ServerFnError::Args(id.to_string()));
+        };
+
+        let _result = use_context::<Arc<Mutex<worker::Env>>>().expect("context expected").lock().unwrap().d1("DB")?
+            .prepare("UPDATE tasks set status = ?1 where id = ?2")
+            .bind(&[(task.status + delta).into(), id.to_string().into()])?
+            .run().await?;
+        Ok(id)
+    }
 }
 
 #[component]
 pub fn Board() -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
-        let filtered_tasks = {
+    let tasks = {
         let create_card: AddTaskAction = create_action(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
         let move_card: ChangeStatusAction = create_action(|input: &(Uuid, i32)| change_status(input.0, input.1));
-
-        let tasks = Resource::new(
-            move || (create_card.version().get(), move_card.version().get()),
-            |_| get_board_state(),
-        );
         provide_context(create_card);
         provide_context(move_card);
 
-        move |status: i32| {
-            #[cfg(feature = "hydrate")]
-                let default_func = || Ok(Tasks::new());
-
-            #[cfg(any(feature = "ssr", feature = "worker"))]
-                let default_func = || Ok(BOARD.lock().unwrap().clone());
-
-            tasks
-                .get()
-                .unwrap_or_else(default_func)
-                .map(|tasks| tasks.filtered(status))
-                .expect("none error")
-        }
-    };
-
-    #[cfg(feature = "csr")]
-        let filtered_tasks = {
-        let (tasks, set_tasks) = create_signal(Tasks::new());
-        provide_context(set_tasks);
-        move |status: i32| tasks.with(|tasks| tasks.filtered(status))
+        create_resource(
+            move || (create_card.version().get(), move_card.version().get()),
+            |_| get_board_state(),
+        )
     };
 
     provide_meta_context();
     view ! {
-        <>
-            <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-            <Stylesheet href="/pkg/style.css" />
-            <div class="container">
-                <Control />
-            </div>
-            <section class="section">
-                <div class="container">
-                    <div class="columns">
-                        <Column text="Open"        tasks=move || filtered_tasks(1) />
-                        <Column text="In progress" tasks=move || filtered_tasks(2) />
-                        <Column text="Completed"   tasks=move || filtered_tasks(3) />
-                    </div>
-                </div>
-             </section>
-        </>
+       <>
+           <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
+           <Stylesheet href="/pkg/style.css" />
+           <div class="container">
+               <Control />
+           </div>
+           <Transition fallback=|| view! { "Loading..." }>
+               {move || tasks.get().map(|tasks| match tasks {
+                   Err(e) => view! { <div class="item-view">{format!("Error: {}", e)}</div> }.into_any(),
+                   Ok(ts) => {
+                       let t1 = ts.clone();
+                       let t2 = ts.clone();
+                       view! {
+                           <section class="section">
+                               <div class="container">
+                                   <div class="columns">
+                                       <Column text="Open"        tasks=Signal::derive(move || t1.filtered(1)) />
+                                       <Column text="In progress" tasks=Signal::derive(move || t2.filtered(2)) />
+                                       <Column text="Completed"   tasks=Signal::derive(move || ts.filtered(3)) />
+                                   </div>
+                               </div>
+                            </section>
+                       }.into_any()
+                   }
+               })}
+           </Transition>
+       </>
     }
 }
 
@@ -158,19 +197,10 @@ fn Control() -> impl IntoView {
     let (assignee, set_assignee) = create_signal("🐱".to_string());
     let (mandays, set_mandays) = create_signal(0);
 
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
-        let add_task = {
+    let add_task = {
         let create_card = use_context::<AddTaskAction>().unwrap();
         move |_| {
             create_card.dispatch((name.get(), assignee.get(), mandays.get()));
-        }
-    };
-
-    #[cfg(feature = "csr")]
-        let add_task = {
-        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
-        move |_| {
-            set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
         }
     };
 
@@ -205,19 +235,10 @@ fn Column(#[prop(into)] tasks: Signal<Vec<Task>>, text: &'static str) -> impl In
 
 #[component]
 fn Card(task: Task) -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
-        let (move_dec, move_inc) = {
+    let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_dec = move |_| move_card.dispatch((task.id, -1));
         let move_inc = move |_| move_card.dispatch((task.id,  1));
-        (move_dec, move_inc)
-    };
-
-    #[cfg(feature = "csr")]
-        let (move_dec, move_inc) = {
-        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
-        let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
-        let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
         (move_dec, move_inc)
     };
 
@@ -273,12 +294,12 @@ async fn main(req: worker::Request, env: worker::Env, _ctx: worker::Context) -> 
 
     let router = Router::new();
     router
-        .get_async("/", |_req, _ctx| async move {
+        .get_async("/", |_req, ctx| async move {
             let (bundle, runtime) =
                 leptos::leptos_dom::ssr::render_to_stream_with_prefix_undisposed_with_context_and_block_replacement(
                     || Board().into_view(),
                     || generate_head_metadata_separated().1.into(),
-                    || (),
+                    || provide_context(Arc::new(Mutex::new(ctx.env))),
                     true
                 );
 
@@ -335,7 +356,7 @@ async fn main(req: worker::Request, env: worker::Env, _ctx: worker::Context) -> 
             let store = ctx.env.kv("__STATIC_CONTENT")?;
             let list = store.list().execute().await?;
             let Some(found) = list.keys.iter().map(|key| Path::new(&key.name)).find(|p| p.file_stem().map(Path::new).unwrap().file_stem().unwrap() == name.file_stem().unwrap() && p.extension() == name.extension()) else {
-                return Response::error("Bad Request", 400);
+                return Response::error("Not found", 404);
             };
 
             let content_type = match found.extension().map(OsStr::to_string_lossy).unwrap_or_default().as_ref() {
@@ -358,10 +379,15 @@ async fn main(req: worker::Request, env: worker::Env, _ctx: worker::Context) -> 
         .post_async("/api/:name", |mut req, ctx| async move {
             let name = ctx.param("name").expect("name expected");
             let Some(server_fn) = server_fn_by_path(name.as_str()) else {
-                return Response::error("Bad Request", 400)
+                return Response::error("Bad Request (unknown api)", 400)
             };
+            let runtime = create_runtime();
+            provide_context(Arc::new(Mutex::new(ctx.env)));
             let body_ref = req.text().await?;
-            let serialized = server_fn.call((), body_ref.as_bytes()).await.map_err(|e| worker::Error::from(e.to_string()))?;
+            let result = server_fn.call((), body_ref.as_bytes()).await;
+            runtime.dispose();
+            let serialized = result.map_err(|e| worker::Error::from(e.to_string()))?;
+
             match serialized {
                 Payload::Url(data) => {
                     let mut response = Response::from_bytes(data.into())?;
@@ -369,7 +395,7 @@ async fn main(req: worker::Request, env: worker::Env, _ctx: worker::Context) -> 
                         .set("Content-Type", "application/x-www-form-urlencoded");
                     Ok(response)
                 }
-                _ => Response::error("Bad Request", 400)
+                _ => Response::error("Bad Request (unknown payload)", 400)
             }
         })
         .run(req, env)
