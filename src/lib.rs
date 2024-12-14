@@ -1,5 +1,4 @@
-use leptos::*;
-use leptos_meta::{Stylesheet, provide_meta_context};
+use leptos::prelude::*;
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
@@ -22,6 +21,25 @@ pub struct Task {
     assignee: String,
     mandays: u32,
     status: i32,
+}
+
+pub fn shell(options: LeptosOptions) -> impl IntoView {
+    view! {
+        <!DOCTYPE html>
+        <html lang="en">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <AutoReload options=options.clone() />
+                <HydrationScripts options/>
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
+                <link rel="stylesheet" href="/style.css" />
+            </head>
+            <body>
+               <Board />
+            </body>
+        </html>
+    }
 }
 
 impl Tasks {
@@ -99,8 +117,8 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 pub fn Board() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let filtered_tasks = {
-        let create_card: AddTaskAction = create_action(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
-        let move_card: ChangeStatusAction = create_action(|input: &(Uuid, i32)| change_status(input.0, input.1));
+        let create_card: AddTaskAction = Action::new(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
+        let move_card: ChangeStatusAction = Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
         let tasks = Resource::new(
             move || (create_card.version().get(), move_card.version().get()),
@@ -116,35 +134,32 @@ pub fn Board() -> impl IntoView {
             #[cfg(feature = "ssr")]
             let default_func = || Ok(BOARD.lock().unwrap().clone());
 
-            tasks
+            Memo::new(move |_| tasks
                 .get()
                 .unwrap_or_else(default_func)
                 .map(|tasks| tasks.filtered(status))
-                .expect("none error")
+                .expect("none error"))
         }
     };
 
     #[cfg(feature = "csr")]
     let filtered_tasks = {
-        let (tasks, set_tasks) = create_signal(Tasks::new());
+        let (tasks, set_tasks) = signal(Tasks::new());
         provide_context(set_tasks);
-        move |status: i32| tasks.with(|tasks| tasks.filtered(status))
+        move |status: i32| Memo::new(move |_| tasks.with(|tasks| tasks.filtered(status)))
     };
 
-    provide_meta_context();
     view ! {
         <>
-            <Stylesheet href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-            <Stylesheet href="/style.css" />
             <div class="container">
                 <Control />
             </div>
             <section class="section">
                 <div class="container">
                     <div class="columns">
-                        <Column text="Open"        tasks=move || filtered_tasks(1) />
-                        <Column text="In progress" tasks=move || filtered_tasks(2) />
-                        <Column text="Completed"   tasks=move || filtered_tasks(3) />
+                    <Column text="Open"        tasks=filtered_tasks(1) />
+                    <Column text="In progress" tasks=filtered_tasks(2) />
+                    <Column text="Completed"   tasks=filtered_tasks(3) />
                     </div>
                 </div>
              </section>
@@ -154,9 +169,9 @@ pub fn Board() -> impl IntoView {
 
 #[component]
 fn Control() -> impl IntoView {
-    let (name, set_name) = create_signal("".to_string());
-    let (assignee, set_assignee) = create_signal("🐱".to_string());
-    let (mandays, set_mandays) = create_signal(0);
+    let (name, set_name) = signal("".to_string());
+    let (assignee, set_assignee) = signal("🐱".to_string());
+    let (mandays, set_mandays) = signal(0);
 
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let add_task = {
@@ -176,25 +191,25 @@ fn Control() -> impl IntoView {
 
     view! {
         <>
-            <input value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
-            <select value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
-                <option value="🐱">"🐱"</option>
-                <option value="🐶">"🐶"</option>
-                <option value="🐹">"🐹"</option>
+            <input prop:value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
+            <select prop:value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
+                <option prop:value="🐱">"🐱"</option>
+                <option prop:value="🐶">"🐶"</option>
+                <option prop:value="🐹">"🐹"</option>
             </select>
-            <input value=mandays.get() on:change=move |e| set_mandays.update(|v| *v = event_target_value(&e).parse::<u32>().unwrap()) />
+            <input prop:value=mandays.get() on:change=move |e| set_mandays.update(|v| *v = event_target_value(&e).parse::<u32>().unwrap()) />
             <button on:click=add_task>{ "Add" }</button>
         </>
     }
 }
 
 #[component]
-fn Column(#[prop(into)] tasks: Signal<Vec<Task>>, text: &'static str) -> impl IntoView {
+fn Column(#[prop(into)] tasks: Memo<Vec<Task>>, text: &'static str) -> impl IntoView {
     view ! {
         <div class="column">
             <div class="tags has-addons">
                 <span class="tag">{text}</span>
-                <span class="tag is-dark">{move || tasks.get().len()}</span>
+                <span class="tag is-dark">{move || tasks.read().len()}</span>
             </div>
             <For each=move || tasks.get()
                  key=|t| t.id
@@ -208,8 +223,8 @@ fn Card(task: Task) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>().unwrap();
-        let move_dec = move |_| move_card.dispatch((task.id, -1));
-        let move_inc = move |_| move_card.dispatch((task.id,  1));
+        let move_dec = move |_| { move_card.dispatch((task.id, -1)); };
+        let move_inc = move |_| { move_card.dispatch((task.id,  1)); };
         (move_dec, move_inc)
     };
 
@@ -224,11 +239,11 @@ fn Card(task: Task) -> impl IntoView {
     view ! {
         <div class="card">
             <div class="card-content">
-                { &task.name }
+              { task.name.clone() }
             </div>
             <footer class="card-footer">
                 <div class="card-footer-item">
-                    { &task.assignee }
+                    { task.assignee.clone() }
                 </div>
                 <div class="card-footer-item">
                     { format!("💪 {}", &task.mandays) }
@@ -248,5 +263,5 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen]
 pub fn hydrate() {
-    mount_to_body(|| view! { <Board /> })
+    hydrate_body(Board)
 }

@@ -1,6 +1,6 @@
-use leptos::{view, mount_to_body};
+use leptos::prelude::mount_to_body;
 use taskboard::Board;
 
 fn main() {
-    mount_to_body(|| view! { <Board /> })
+    mount_to_body(Board);
 }
