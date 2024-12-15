@@ -12,7 +12,6 @@ crate-type = ["cdylib", "rlib"]
 axum = { version = "0.7.9", optional = true }
 leptos = { version = "0.7.0" }
 leptos_axum = { version = "0.7.0", optional = true }
-once_cell = { version = "1.20.2", optional = true }
 serde = "1.0.216"
 serde_json = "1.0.133"
 tokio = { version = "1.42.0", features = ["rt-multi-thread", "macros"], optional = true }
@@ -25,7 +24,7 @@ tower = "0.5.2"
 default = []
 csr = ["leptos/csr"]
 hydrate = ["leptos/hydrate"]
-ssr = ["leptos/ssr", "dep:axum", "dep:tokio", "dep:tower-http", "dep:once_cell", "dep:leptos_axum"]
+ssr = ["leptos/ssr", "dep:axum", "dep:tokio", "dep:tower-http", "dep:leptos_axum"]
 
 [package.metadata.leptos]
 output-name = "taskboard"

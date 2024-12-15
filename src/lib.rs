@@ -3,13 +3,13 @@ use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
 #[cfg(feature = "ssr")]
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[cfg(feature = "ssr")]
 use std::sync::Mutex;
 
 #[cfg(feature = "ssr")]
-static BOARD: Lazy<Mutex<Tasks>> = Lazy::new(|| { Mutex::new(Tasks::new()) });
+static BOARD: LazyLock<Mutex<Tasks>> = LazyLock::new(|| { Mutex::new(Tasks::new()) });
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
