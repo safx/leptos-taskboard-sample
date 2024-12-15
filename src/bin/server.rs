@@ -1,14 +1,14 @@
+use axum::Router;
 use axum::{
     body::Body,
     extract::State,
     http::{Request, Uri},
-    routing::post,
     response::{IntoResponse, Response},
+    routing::post,
 };
-use leptos::prelude::{get_configuration, ElementChild, LeptosOptions, view};
-use axum::Router;
-use taskboard::{Board, shell};
+use leptos::prelude::{get_configuration, view, ElementChild, LeptosOptions};
 use leptos_axum::{generate_route_list, LeptosRoutes};
+use taskboard::{shell, Board};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -20,13 +20,13 @@ async fn main() {
     let routes = generate_route_list(Board);
 
     let app = Router::new()
-               .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
-               .leptos_routes(&leptos_options, routes, {
-                    let leptos_options = leptos_options.clone();
-                    move || shell(leptos_options.clone())
-               })
-               .fallback(file_handler)
-               .with_state(leptos_options);
+        .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
+        .leptos_routes(&leptos_options, routes, {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        })
+        .fallback(file_handler)
+        .with_state(leptos_options);
 
     println!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
@@ -49,10 +49,9 @@ pub async fn file_handler(
     match ServeDir::new(&*path).oneshot(file_req).await {
         Ok(res) => res.into_response(),
         Err(err) => {
-            let handler =
-                leptos_axum::render_app_to_stream(move || {
-                    view! { <div>{err.to_string()}</div> }
-                });
+            let handler = leptos_axum::render_app_to_stream(move || {
+                view! { <div>{err.to_string()}</div> }
+            });
             handler(req).await.into_response()
         }
     }

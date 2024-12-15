@@ -1,6 +1,6 @@
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
 
 #[cfg(feature = "ssr")]
 use std::sync::LazyLock;
@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 #[cfg(feature = "ssr")]
-static BOARD: LazyLock<Mutex<Tasks>> = LazyLock::new(|| { Mutex::new(Tasks::new()) });
+static BOARD: LazyLock<Mutex<Tasks>> = LazyLock::new(|| Mutex::new(Tasks::new()));
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
@@ -63,7 +63,7 @@ impl Tasks {
     #[cfg(not(feature = "hydrate"))]
     fn change_status(&mut self, id: Uuid, delta: i32) {
         if let Some(card) = self.0.iter_mut().find(|e| e.id == id) {
-            let new_status =  card.status + delta;
+            let new_status = card.status + delta;
             if 1 <= new_status && new_status <= 3 {
                 card.status = new_status
             }
@@ -117,8 +117,11 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 pub fn Board() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let filtered_tasks = {
-        let create_card: AddTaskAction = Action::new(|input: &(String, String, u32)| add_task(input.0.clone(), input.1.clone(), input.2));
-        let move_card: ChangeStatusAction = Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
+        let create_card: AddTaskAction = Action::new(|input: &(String, String, u32)| {
+            add_task(input.0.clone(), input.1.clone(), input.2)
+        });
+        let move_card: ChangeStatusAction =
+            Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
         let tasks = Resource::new(
             move || (create_card.version().get(), move_card.version().get()),
@@ -134,11 +137,13 @@ pub fn Board() -> impl IntoView {
             #[cfg(feature = "ssr")]
             let default_func = || Ok(BOARD.lock().unwrap().clone());
 
-            Memo::new(move |_| tasks
-                .get()
-                .unwrap_or_else(default_func)
-                .map(|tasks| tasks.filtered(status))
-                .expect("none error"))
+            Memo::new(move |_| {
+                tasks
+                    .get()
+                    .unwrap_or_else(default_func)
+                    .map(|tasks| tasks.filtered(status))
+                    .expect("none error")
+            })
         }
     };
 
@@ -149,7 +154,7 @@ pub fn Board() -> impl IntoView {
         move |status: i32| Memo::new(move |_| tasks.with(|tasks| tasks.filtered(status)))
     };
 
-    view ! {
+    view! {
         <>
             <div class="container">
                 <Control />
@@ -205,7 +210,7 @@ fn Control() -> impl IntoView {
 
 #[component]
 fn Column(#[prop(into)] tasks: Memo<Vec<Task>>, text: &'static str) -> impl IntoView {
-    view ! {
+    view! {
         <div class="column">
             <div class="tags has-addons">
                 <span class="tag">{text}</span>
@@ -223,20 +228,24 @@ fn Card(task: Task) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
         let move_card = use_context::<ChangeStatusAction>().unwrap();
-        let move_dec = move |_| { move_card.dispatch((task.id, -1)); };
-        let move_inc = move |_| { move_card.dispatch((task.id,  1)); };
+        let move_dec = move |_| {
+            move_card.dispatch((task.id, -1));
+        };
+        let move_inc = move |_| {
+            move_card.dispatch((task.id, 1));
+        };
         (move_dec, move_inc)
     };
 
     #[cfg(feature = "csr")]
-        let (move_dec, move_inc) = {
+    let (move_dec, move_inc) = {
         let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
         let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
-        let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id,  1));
+        let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id, 1));
         (move_dec, move_inc)
     };
 
-    view ! {
+    view! {
         <div class="card">
             <div class="card-content">
               { task.name.clone() }
