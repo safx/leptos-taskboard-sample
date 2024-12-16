@@ -1,6 +1,6 @@
 use leptos::prelude::mount_to_body;
-use taskboard::Board;
+use taskboard::app::App;
 
 fn main() {
-    mount_to_body(Board);
+    mount_to_body(App);
 }

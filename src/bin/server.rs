@@ -8,7 +8,7 @@ use axum::{
 };
 use leptos::prelude::{get_configuration, view, ElementChild, LeptosOptions};
 use leptos_axum::{generate_route_list, LeptosRoutes};
-use taskboard::{shell, Board};
+use taskboard::app::{shell, App};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -17,7 +17,7 @@ async fn main() {
     let conf = get_configuration(Some("Cargo.toml")).unwrap();
     let leptos_options = conf.leptos_options;
     let addr = leptos_options.site_addr;
-    let routes = generate_route_list(Board);
+    let routes = generate_route_list(App);
 
     let app = Router::new()
         .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
