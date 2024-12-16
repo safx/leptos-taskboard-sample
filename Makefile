@@ -7,6 +7,7 @@ trunk:
 .PHONY: client
 client:
 	wasm-pack build --target=web --features=hydrate --release
+	cp style.css pkg
 
 .PHONY: server
 server:

@@ -33,7 +33,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <AutoReload options=options.clone() />
                 <HydrationScripts options/>
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-                <link rel="stylesheet" href="/style.css" />
+                <link rel="stylesheet" href="/pkg/style.css" />
             </head>
             <body>
                <Board />
