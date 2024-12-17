@@ -1,10 +1,10 @@
-use axum::Router;
 use axum::{
     body::Body,
     extract::State,
     http::{Request, Uri},
     response::{IntoResponse, Response},
     routing::post,
+    Router,
 };
 use leptos::prelude::{get_configuration, view, ElementChild, LeptosOptions};
 use leptos_axum::{generate_route_list, LeptosRoutes};
