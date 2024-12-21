@@ -40,6 +40,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 }
 
 impl Tasks {
+    #[cfg(not(feature = "hydrate"))]
     fn new() -> Self {
         Self(vec![
             Task::new("Task 1", "🐱", 3, 1),
@@ -74,6 +75,7 @@ impl Tasks {
 }
 
 impl Task {
+    #[cfg(not(feature = "hydrate"))]
     fn new(name: &str, assignee: &str, mandays: u32, status: i32) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -113,59 +115,63 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 #[component]
 pub fn App() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let filtered_tasks = {
+    let board = {
         let create_card: AddTaskAction = Action::new(|input: &(String, String, u32)| {
             add_task(input.0.clone(), input.1.clone(), input.2)
         });
         let move_card: ChangeStatusAction =
             Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
+        provide_context(create_card);
+        provide_context(move_card);
+
         let tasks = Resource::new(
             move || (create_card.version().get(), move_card.version().get()),
             |_| get_board_state(),
         );
-        provide_context(create_card);
-        provide_context(move_card);
 
-        move |status: i32| {
-            #[cfg(feature = "hydrate")]
-            let default_func = || Ok(Tasks::new());
-
-            #[cfg(feature = "ssr")]
-            let default_func = || Ok(BOARD.lock().unwrap().clone());
-
-            Memo::new(move |_| {
-                tasks
-                    .get()
-                    .unwrap_or_else(default_func)
-                    .map(|tasks| tasks.filtered(status))
-                    .expect("none error")
-            })
-        }
+        view! {
+           <Transition fallback=|| view! { "Loading..." }>
+               {move || tasks.get().map(|tasks| match tasks {
+                   Err(e) => view! { <div class="item-view">{format!("Error: {}", e)}</div> }.into_any(),
+                   Ok(ts) => view! { <Board tasks={ts} /> }.into_any(),
+               })}
+           </Transition>
+        }.into_any()
     };
 
     #[cfg(feature = "csr")]
-    let filtered_tasks = {
+    let board = {
         let (tasks, set_tasks) = signal(Tasks::new());
         provide_context(set_tasks);
-        move |status: i32| Memo::new(move |_| tasks.with(|tasks| tasks.filtered(status)))
+        view! { <Board tasks={tasks} /> }.into_any()
     };
 
     view! {
-        <>
+       <>
+         <div class="container">
+           <Control />
+           {board}
+         </div>
+       </>
+    }
+}
+
+#[component]
+fn Board(#[prop(into)] tasks: Signal<Tasks>) -> impl IntoView {
+    let filtered =
+        move |status: i32| Memo::new(move |_| tasks.with(|tasks| tasks.filtered(status)));
+
+    view! {
+        <section class="section">
             <div class="container">
-                <Control />
-            </div>
-            <section class="section">
-                <div class="container">
-                    <div class="columns">
-                    <Column text="Open"        tasks=filtered_tasks(1) />
-                    <Column text="In progress" tasks=filtered_tasks(2) />
-                    <Column text="Completed"   tasks=filtered_tasks(3) />
-                    </div>
+                <div class="columns">
+                    <Column text="Open"        tasks=filtered(1) />
+                    <Column text="In progress" tasks=filtered(2) />
+                    <Column text="Completed"   tasks=filtered(3) />
                 </div>
-             </section>
-        </>
+            </div>
+         </section>
     }
 }
 
