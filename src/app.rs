@@ -196,8 +196,8 @@ fn Board(#[prop(into)] tasks: Signal<Tasks>, change_status: ChangeStatusAction) 
 
 #[component]
 fn Control(add_task: AddTaskAction) -> impl IntoView {
-    let (name, set_name) = signal("".to_string());
-    let (assignee, set_assignee) = signal("🐱".to_string());
+    let name = RwSignal::new("".to_string());
+    let assignee = RwSignal::new("🐱".to_string());
     let (mandays, set_mandays) = signal(0);
 
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
@@ -218,8 +218,8 @@ fn Control(add_task: AddTaskAction) -> impl IntoView {
 
     view! {
         <>
-            <input prop:value=name.get() on:change=move |e| set_name.update(|v| *v = event_target_value(&e)) />
-            <select prop:value=assignee.get() on:change=move |e| set_assignee.update(|v| *v = event_target_value(&e)) >
+            <input bind:value=name />
+            <select bind:value=assignee>
                 <option prop:value="🐱">"🐱"</option>
                 <option prop:value="🐶">"🐶"</option>
                 <option prop:value="🐹">"🐹"</option>
