@@ -5,10 +5,10 @@ use uuid::Uuid;
 #[cfg(feature = "csr")]
 use std::sync::Arc;
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", feature = "worker"))]
 use std::sync::{LazyLock, Mutex};
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", feature = "worker"))]
 static BOARD: LazyLock<Mutex<Tasks>> = LazyLock::new(|| Mutex::new(Tasks::new()));
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,7 +33,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <AutoReload options=options.clone() />
                 <HydrationScripts options/>
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-                <link rel="stylesheet" href="/style.css" />
+                <link rel="stylesheet" href="/pkg/style.css" />
             </head>
             <body>
                <App />
@@ -92,12 +92,12 @@ impl Task {
 
 #[cfg(feature = "csr")]
 type AddTaskAction = Box<dyn Fn(String, String, u32) -> () + Send + Sync>;
-#[cfg(any(feature = "hydrate", feature = "ssr"))]
+#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
 type AddTaskAction = ServerAction<AddTask>;
 
 #[cfg(feature = "csr")]
 type ChangeStatusAction = Arc<dyn Fn(Uuid, i32) -> () + Send + Sync>;
-#[cfg(any(feature = "hydrate", feature = "ssr"))]
+#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
 type ChangeStatusAction = ServerAction<ChangeStatus>;
 
 #[server]
@@ -122,7 +122,7 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 
 #[component]
 pub fn App() -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
     let (board, add_task_action) = {
         let add_task_action = ServerAction::<AddTask>::new();
         let change_status_action = ServerAction::<ChangeStatus>::new();
@@ -196,7 +196,7 @@ fn Control(add_task: AddTaskAction) -> impl IntoView {
     let assignee = RwSignal::new("🐱".to_string());
     let (mandays, set_mandays) = signal(0);
 
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
     let handle_add = {
         move |_| {
             add_task.dispatch(AddTask {
@@ -251,7 +251,7 @@ fn Column(
 
 #[component]
 fn Card(task: Task, change_status: ChangeStatusAction) -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr"))]
+    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
     let (move_dec, move_inc) = {
         let move_dec = move |_| {
             change_status.dispatch(ChangeStatus {

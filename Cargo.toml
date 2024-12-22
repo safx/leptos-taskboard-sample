@@ -9,22 +9,29 @@ crate-type = ["cdylib", "rlib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version = "0.7.9", optional = true }
+axum = { version = "0.7", default-features = false, optional = true }
 leptos = { version = "0.7.2" }
-leptos_axum = { version = "0.7.2", optional = true }
+leptos_axum = { version = "0.7.2", default-features = false, optional = true }
 serde = "1.0.216"
-serde_json = "1.0.134"
+serde_json = { version = "1.0.134", optional = true }
 tokio = { version = "1.42.0", features = ["rt-multi-thread", "macros"], optional = true }
 tower-http = { version = "0.6.2", features = ["fs"], optional = true }
 uuid = { version = "1.11.0", features = ["v4", "js", "serde"] }
 wasm-bindgen = "0.2.99"
 tower = "0.5.2"
+tower-service = {  version = "0.3.2", optional = true }
+worker = { version = "0.5.0", features = ["http", "axum", "d1"], optional = true }
+worker-macros = { version = "0.5.0", features = ["http"], optional = true }
+worker-kv = { version = "0.8.0", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+console_error_panic_hook = { version = "0.1.7", optional = true }
 
 [features]
 default = []
 csr = ["leptos/csr"]
 hydrate = ["leptos/hydrate"]
-ssr = ["leptos/ssr", "dep:axum", "dep:tokio", "dep:tower-http", "dep:leptos_axum"]
+ssr = ["leptos/ssr", "dep:axum", "axum/default", "dep:tokio", "dep:tower-http", "dep:leptos_axum", "leptos_axum/default"]
+worker = ["leptos/ssr", "dep:leptos_axum", "leptos_axum/wasm", "dep:tower-service",  "dep:axum", "dep:wasm-bindgen-futures", "dep:worker", "dep:worker-macros", "dep:worker-kv", "dep:console_error_panic_hook"]
 
 [package.metadata.leptos]
 output-name = "taskboard"

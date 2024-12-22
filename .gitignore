@@ -3,3 +3,5 @@
 dist/
 pkg/
 target/
+.wrangler/
+node_modules/
