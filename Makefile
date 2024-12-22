@@ -10,5 +10,5 @@ client:
 	cp style.css pkg
 
 .PHONY: server
-server:
+server: client
 	cargo build --bin server --features=ssr --release

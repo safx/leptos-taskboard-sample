@@ -93,12 +93,12 @@ impl Task {
 #[cfg(feature = "csr")]
 type AddTaskAction = Box<dyn Fn(String, String, u32) -> () + Send + Sync>;
 #[cfg(any(feature = "hydrate", feature = "ssr"))]
-type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
+type AddTaskAction = ServerAction<AddTask>;
 
 #[cfg(feature = "csr")]
 type ChangeStatusAction = Arc<dyn Fn(Uuid, i32) -> () + Send + Sync>;
 #[cfg(any(feature = "hydrate", feature = "ssr"))]
-type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
+type ChangeStatusAction = ServerAction<ChangeStatus>;
 
 #[server]
 pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
@@ -124,12 +124,8 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 pub fn App() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (board, add_task_action) = {
-        let add_task_action: AddTaskAction = Action::new(|input: &(String, String, u32)| {
-            add_task(input.0.clone(), input.1.clone(), input.2)
-        });
-
-        let change_status_action: ChangeStatusAction =
-            Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
+        let add_task_action = ServerAction::<AddTask>::new();
+        let change_status_action = ServerAction::<ChangeStatus>::new();
 
         let tasks = Resource::new(
             move || {
@@ -203,7 +199,11 @@ fn Control(add_task: AddTaskAction) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let handle_add = {
         move |_| {
-            add_task.dispatch((name.get(), assignee.get(), mandays.get()));
+            add_task.dispatch(AddTask {
+                name: name.get(),
+                assignee: assignee.get(),
+                mandays: mandays.get(),
+            });
         }
     };
 
@@ -254,10 +254,16 @@ fn Card(task: Task, change_status: ChangeStatusAction) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
         let move_dec = move |_| {
-            change_status.dispatch((task.id, -1));
+            change_status.dispatch(ChangeStatus {
+                id: task.id,
+                delta: -1,
+            });
         };
         let move_inc = move |_| {
-            change_status.dispatch((task.id, 1));
+            change_status.dispatch(ChangeStatus {
+                id: task.id,
+                delta: 1,
+            });
         };
         (move_dec, move_inc)
     };
