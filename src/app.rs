@@ -2,6 +2,9 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[cfg(feature = "csr")]
+use std::sync::Arc;
+
 #[cfg(feature = "ssr")]
 use std::sync::{LazyLock, Mutex};
 
@@ -87,8 +90,13 @@ impl Task {
     }
 }
 
+#[cfg(feature = "csr")]
+type AddTaskAction = Box<dyn Fn(String, String, u32) -> () + Send + Sync>;
 #[cfg(any(feature = "hydrate", feature = "ssr"))]
 type AddTaskAction = Action<(String, String, u32), Result<(), ServerFnError>>;
+
+#[cfg(feature = "csr")]
+type ChangeStatusAction = Arc<dyn Fn(Uuid, i32) -> () + Send + Sync>;
 #[cfg(any(feature = "hydrate", feature = "ssr"))]
 type ChangeStatusAction = Action<(Uuid, i32), Result<Uuid, ServerFnError>>;
 
@@ -115,42 +123,53 @@ pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> 
 #[component]
 pub fn App() -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let board = {
-        let create_card: AddTaskAction = Action::new(|input: &(String, String, u32)| {
+    let (board, add_task_action) = {
+        let add_task_action: AddTaskAction = Action::new(|input: &(String, String, u32)| {
             add_task(input.0.clone(), input.1.clone(), input.2)
         });
-        let move_card: ChangeStatusAction =
+
+        let change_status_action: ChangeStatusAction =
             Action::new(|input: &(Uuid, i32)| change_status(input.0, input.1));
 
-        provide_context(create_card);
-        provide_context(move_card);
-
         let tasks = Resource::new(
-            move || (create_card.version().get(), move_card.version().get()),
+            move || {
+                (
+                    add_task_action.version().get(),
+                    change_status_action.version().get(),
+                )
+            },
             |_| get_board_state(),
         );
 
-        view! {
+        let board = view! {
            <Transition fallback=|| view! { "Loading..." }>
                {move || tasks.get().map(|tasks| match tasks {
                    Err(e) => view! { <div class="item-view">{format!("Error: {}", e)}</div> }.into_any(),
-                   Ok(ts) => view! { <Board tasks={ts} /> }.into_any(),
+                   Ok(ts) => view! { <Board tasks={ts} change_status=change_status_action /> }.into_any(),
                })}
            </Transition>
-        }.into_any()
+        }.into_any();
+
+        (board, add_task_action)
     };
 
     #[cfg(feature = "csr")]
-    let board = {
+    let (board, add_task_action) = {
         let (tasks, set_tasks) = signal(Tasks::new());
-        provide_context(set_tasks);
-        view! { <Board tasks={tasks} /> }.into_any()
+        let add_task_action: AddTaskAction =
+            Box::new(move |name: String, assignee: String, mandays: u32| {
+                set_tasks.update(|v| v.add_task(&name, &assignee, mandays));
+            });
+        let change_status_action: ChangeStatusAction =
+            Arc::new(move |id: Uuid, delta: i32| set_tasks.update(|v| v.change_status(id, delta)));
+        let board = view! { <Board tasks={tasks} change_status=change_status_action /> }.into_any();
+        (board, add_task_action)
     };
 
     view! {
        <>
          <div class="container">
-           <Control />
+           <Control add_task={add_task_action}/>
            {board}
          </div>
        </>
@@ -158,7 +177,7 @@ pub fn App() -> impl IntoView {
 }
 
 #[component]
-fn Board(#[prop(into)] tasks: Signal<Tasks>) -> impl IntoView {
+fn Board(#[prop(into)] tasks: Signal<Tasks>, change_status: ChangeStatusAction) -> impl IntoView {
     let filtered =
         move |status: i32| Memo::new(move |_| tasks.with(|tasks| tasks.filtered(status)));
 
@@ -166,9 +185,9 @@ fn Board(#[prop(into)] tasks: Signal<Tasks>) -> impl IntoView {
         <section class="section">
             <div class="container">
                 <div class="columns">
-                    <Column text="Open"        tasks=filtered(1) />
-                    <Column text="In progress" tasks=filtered(2) />
-                    <Column text="Completed"   tasks=filtered(3) />
+                    <Column text="Open"        tasks=filtered(1) change_status=change_status.clone() />
+                    <Column text="In progress" tasks=filtered(2) change_status=change_status.clone() />
+                    <Column text="Completed"   tasks=filtered(3) change_status=change_status.clone() />
                 </div>
             </div>
          </section>
@@ -176,25 +195,25 @@ fn Board(#[prop(into)] tasks: Signal<Tasks>) -> impl IntoView {
 }
 
 #[component]
-fn Control() -> impl IntoView {
+fn Control(add_task: AddTaskAction) -> impl IntoView {
     let (name, set_name) = signal("".to_string());
     let (assignee, set_assignee) = signal("🐱".to_string());
     let (mandays, set_mandays) = signal(0);
 
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
-    let add_task = {
-        let create_card = use_context::<AddTaskAction>().unwrap();
+    let handle_add = {
         move |_| {
-            create_card.dispatch((name.get(), assignee.get(), mandays.get()));
+            add_task.dispatch((name.get(), assignee.get(), mandays.get()));
         }
     };
 
     #[cfg(feature = "csr")]
-    let add_task = {
-        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
-        move |_| {
-            set_tasks.update(|v| v.add_task(&name.get(), &assignee.get(), mandays.get()));
-        }
+    let handle_add = move |_| {
+        add_task(
+            name.get().to_string(),
+            assignee.get().to_string(),
+            mandays.get(),
+        );
     };
 
     view! {
@@ -206,13 +225,17 @@ fn Control() -> impl IntoView {
                 <option prop:value="🐹">"🐹"</option>
             </select>
             <input prop:value=mandays.get() on:change=move |e| set_mandays.update(|v| *v = event_target_value(&e).parse::<u32>().unwrap()) />
-            <button on:click=add_task>{ "Add" }</button>
+            <button on:click=handle_add>{ "Add" }</button>
         </>
     }
 }
 
 #[component]
-fn Column(#[prop(into)] tasks: Memo<Vec<Task>>, text: &'static str) -> impl IntoView {
+fn Column(
+    #[prop(into)] tasks: Memo<Vec<Task>>,
+    text: &'static str,
+    change_status: ChangeStatusAction,
+) -> impl IntoView {
     view! {
         <div class="column">
             <div class="tags has-addons">
@@ -221,30 +244,29 @@ fn Column(#[prop(into)] tasks: Memo<Vec<Task>>, text: &'static str) -> impl Into
             </div>
             <For each=move || tasks.get()
                  key=|t| t.id
-                 children=move |t| view! { <Card task=t/> } />
+                 children=move |t| view! { <Card task=t change_status=change_status.clone() /> } />
         </div>
     }
 }
 
 #[component]
-fn Card(task: Task) -> impl IntoView {
+fn Card(task: Task, change_status: ChangeStatusAction) -> impl IntoView {
     #[cfg(any(feature = "hydrate", feature = "ssr"))]
     let (move_dec, move_inc) = {
-        let move_card = use_context::<ChangeStatusAction>().unwrap();
         let move_dec = move |_| {
-            move_card.dispatch((task.id, -1));
+            change_status.dispatch((task.id, -1));
         };
         let move_inc = move |_| {
-            move_card.dispatch((task.id, 1));
+            change_status.dispatch((task.id, 1));
         };
         (move_dec, move_inc)
     };
 
     #[cfg(feature = "csr")]
     let (move_dec, move_inc) = {
-        let set_tasks = use_context::<WriteSignal<Tasks>>().unwrap();
-        let move_dec = move |_| set_tasks.update(|v| v.change_status(task.id, -1));
-        let move_inc = move |_| set_tasks.update(|v| v.change_status(task.id, 1));
+        let change = change_status.clone();
+        let move_dec = move |_| change(task.id, -1);
+        let move_inc = move |_| change_status(task.id, 1);
         (move_dec, move_inc)
     };
 
