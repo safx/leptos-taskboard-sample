@@ -18,7 +18,7 @@ wasm-pack build --target=web --features=hydrate --release
 make server && ./target/release/server
 ```
 
-## Cloudflare Workers
+## Cloudflare Workers (D1 + SSR)
 ```bash
 make
 ```

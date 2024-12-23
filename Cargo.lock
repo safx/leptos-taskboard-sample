@@ -1976,7 +1976,6 @@ dependencies = [
  "tower-service",
  "uuid",
  "wasm-bindgen",
- "wasm-bindgen-futures",
  "worker",
  "worker-kv 0.8.0",
  "worker-macros",

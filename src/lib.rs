@@ -1,9 +1,9 @@
 pub mod app;
 
-#[cfg(feature = "hydrate")]
+#[cfg(any(feature = "hydrate", feature = "worker-hydrate"))]
 use wasm_bindgen::prelude::wasm_bindgen;
 
-#[cfg(feature = "hydrate")]
+#[cfg(any(feature = "hydrate", feature = "worker-hydrate"))]
 #[wasm_bindgen]
 pub fn hydrate() {
     use crate::app::App;
@@ -21,12 +21,13 @@ use axum::{
 use worker::{event, Context, Env, HttpRequest, Result};
 
 #[cfg(feature = "worker")]
-fn router() -> Router {
+fn router(env: Env) -> Router {
     use crate::app::{shell, App};
     use axum::{
         routing::{get, post},
         Router,
     };
+    use leptos::context::provide_context;
     use leptos::prelude::LeptosOptions;
     use leptos::server_fn::axum::register_explicit;
     use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -43,15 +44,25 @@ fn router() -> Router {
         .build();
     let routes = generate_route_list(App);
 
+    // `provide_context` is needed to be call server API functions
+    provide_context(env.clone());
+
     Router::new()
         .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
         .route("/pkg/:name", get(file_handler))
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
+            let env = env.clone();
+            move || {
+                leptos::leptos_dom::logging::console_log("leptos_routes");
+                // this closure need `provide_context` as well under dehydrating mode
+                provide_context(env.clone());
+                shell(leptos_options.clone())
+            }
         })
         .fallback(default_fallback)
         .with_state(leptos_options)
+        .layer(Extension(env))
 }
 
 #[cfg(feature = "worker")]
@@ -63,7 +74,7 @@ pub async fn fetch(
 ) -> Result<Response<axum::body::Body>> {
     use tower_service::Service;
     console_error_panic_hook::set_once();
-    Ok(router().layer(Extension(env)).call(req).await?)
+    Ok(router(env).call(req).await?)
 }
 
 #[cfg(feature = "worker")]

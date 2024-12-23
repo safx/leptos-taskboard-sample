@@ -13,8 +13,13 @@ client:
 server: client
 	cargo build --bin server --features=ssr --release
 
+.PHONY: worker-client
+worker-client:
+	wasm-pack build --target=web --features=worker-hydrate --release
+	cp style.css pkg/
+
 .PHONY: workers
-workers: client
+workers: worker-client
 	npx wrangler dev
 
 .PHONY: clean

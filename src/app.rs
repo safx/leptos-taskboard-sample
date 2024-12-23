@@ -5,13 +5,16 @@ use uuid::Uuid;
 #[cfg(feature = "csr")]
 use std::sync::Arc;
 
-#[cfg(any(feature = "ssr", feature = "worker"))]
-use std::sync::{LazyLock, Mutex};
+#[cfg(feature = "ssr")]
+use std::sync::LazyLock;
 
-#[cfg(any(feature = "ssr", feature = "worker"))]
+#[cfg(feature = "ssr")]
+use tokio::sync::Mutex;
+
+#[cfg(any(feature = "ssr"))]
 static BOARD: LazyLock<Mutex<Tasks>> = LazyLock::new(|| Mutex::new(Tasks::new()));
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct Tasks(Vec<Task>);
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug)]
@@ -43,13 +46,13 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 }
 
 impl Tasks {
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(any(feature = "csr", feature = "ssr"))]
     fn new() -> Self {
         Self(vec![
-            Task::new("Task 1", "🐱", 3, 1),
-            Task::new("Task 2", "🐶", 2, 1),
-            Task::new("Task 3", "🐱", 1, 2),
-            Task::new("Task 4", "🐹", 3, 3),
+            Task::new("Task 1".to_owned(), "🐱".to_owned(), 3, 1),
+            Task::new("Task 2".to_owned(), "🐶".to_owned(), 2, 1),
+            Task::new("Task 3".to_owned(), "🐱".to_owned(), 1, 2),
+            Task::new("Task 4".to_owned(), "🐹".to_owned(), 3, 3),
         ])
     }
 
@@ -61,7 +64,7 @@ impl Tasks {
             .collect()
     }
 
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(any(feature = "csr", feature = "ssr"))]
     fn change_status(&mut self, id: Uuid, delta: i32) {
         if let Some(card) = self.0.iter_mut().find(|e| e.id == id) {
             let new_status = card.status + delta;
@@ -71,19 +74,20 @@ impl Tasks {
         }
     }
 
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(any(feature = "csr", feature = "ssr"))]
     fn add_task(&mut self, name: &str, assignee: &str, mandays: u32) {
-        self.0.push(Task::new(name, assignee, mandays, 1));
+        self.0
+            .push(Task::new(name.to_owned(), assignee.to_owned(), mandays, 1));
     }
 }
 
 impl Task {
-    #[cfg(not(feature = "hydrate"))]
-    fn new(name: &str, assignee: &str, mandays: u32, status: i32) -> Self {
+    #[cfg(any(feature = "csr", feature = "ssr", feature = "worker"))]
+    fn new(name: String, assignee: String, mandays: u32, status: i32) -> Self {
         Self {
             id: Uuid::new_v4(),
-            name: name.to_string(),
-            assignee: assignee.to_string(),
+            name,
+            assignee,
             mandays,
             status,
         }
@@ -92,37 +96,123 @@ impl Task {
 
 #[cfg(feature = "csr")]
 type AddTaskAction = Box<dyn Fn(String, String, u32) -> () + Send + Sync>;
-#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+#[cfg(any(
+    feature = "hydrate",
+    feature = "worker-hydrate",
+    feature = "ssr",
+    feature = "worker"
+))]
 type AddTaskAction = ServerAction<AddTask>;
 
 #[cfg(feature = "csr")]
 type ChangeStatusAction = Arc<dyn Fn(Uuid, i32) -> () + Send + Sync>;
-#[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+#[cfg(any(
+    feature = "hydrate",
+    feature = "worker-hydrate",
+    feature = "ssr",
+    feature = "worker",
+))]
 type ChangeStatusAction = ServerAction<ChangeStatus>;
 
+#[cfg(any(feature = "ssr", feature = "hydrate"))]
 #[server]
 pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
-    let board = BOARD.lock().unwrap();
+    let board = BOARD.lock().await;
     Ok(board.clone())
 }
 
+#[cfg(any(feature = "worker", feature = "worker-hydrate"))]
+#[worker::send]
+#[server]
+pub async fn get_board_state() -> Result<Tasks, ServerFnError> {
+    let d1 = use_context::<worker::Env>()
+        .expect("context expected")
+        .d1("DB")
+        .expect("DB expected");
+    let tasks = d1
+        .prepare("SELECT * FROM tasks")
+        .all()
+        .await
+        .expect("await")
+        .results()
+        .expect("results");
+    Ok(Tasks(tasks))
+}
+
+#[cfg(any(feature = "ssr", feature = "hydrate"))]
 #[server]
 pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
-    let mut board = BOARD.lock().unwrap();
+    let mut board = BOARD.lock().await;
     board.add_task(&name, &assignee, mandays);
     Ok(())
 }
 
+#[cfg(any(feature = "worker", feature = "worker-hydrate"))]
+#[worker::send]
+#[server]
+pub async fn add_task(name: String, assignee: String, mandays: u32) -> Result<(), ServerFnError> {
+    let task = Task::new(name, assignee, mandays, 1);
+    let d1 = use_context::<worker::Env>()
+        .expect("context expected")
+        .d1("DB")
+        .expect("DB expected");
+    let _result = d1
+        .prepare(
+            "INSERT INTO tasks (id, name, assignee, mandays, status) VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(&[
+            task.id.to_string().into(),
+            task.name.into(),
+            task.assignee.into(),
+            task.mandays.into(),
+            task.status.into(),
+        ])?
+        .run()
+        .await?;
+    Ok(())
+}
+
+#[cfg(any(feature = "ssr", feature = "hydrate"))]
 #[server]
 pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
-    let mut board = BOARD.lock().unwrap();
+    let mut board = BOARD.lock().await;
     board.change_status(id, delta);
+    Ok(id)
+}
+
+#[cfg(any(feature = "worker", feature = "worker-hydrate"))]
+#[worker::send]
+#[server]
+pub async fn change_status(id: Uuid, delta: i32) -> Result<Uuid, ServerFnError> {
+    let d1 = use_context::<worker::Env>()
+        .expect("context expected")
+        .d1("DB")
+        .expect("DB expected");
+
+    let Some(task) = d1
+        .prepare("SELECT * FROM tasks where id = ?1")
+        .bind(&[id.to_string().into()])?
+        .first::<Task>(None)
+        .await?
+    else {
+        return Err(ServerFnError::Args(id.to_string()));
+    };
+    let _result = d1
+        .prepare("UPDATE tasks set status = ?1 where id = ?2")
+        .bind(&[(task.status + delta).into(), id.to_string().into()])?
+        .run()
+        .await?;
     Ok(id)
 }
 
 #[component]
 pub fn App() -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+    #[cfg(any(
+        feature = "hydrate",
+        feature = "worker-hydrate",
+        feature = "ssr",
+        feature = "worker"
+    ))]
     let (board, add_task_action) = {
         let add_task_action = ServerAction::<AddTask>::new();
         let change_status_action = ServerAction::<ChangeStatus>::new();
@@ -196,7 +286,12 @@ fn Control(add_task: AddTaskAction) -> impl IntoView {
     let assignee = RwSignal::new("🐱".to_string());
     let (mandays, set_mandays) = signal(0);
 
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+    #[cfg(any(
+        feature = "hydrate",
+        feature = "worker-hydrate",
+        feature = "ssr",
+        feature = "worker"
+    ))]
     let handle_add = {
         move |_| {
             add_task.dispatch(AddTask {
@@ -251,7 +346,12 @@ fn Column(
 
 #[component]
 fn Card(task: Task, change_status: ChangeStatusAction) -> impl IntoView {
-    #[cfg(any(feature = "hydrate", feature = "ssr", feature = "worker"))]
+    #[cfg(any(
+        feature = "hydrate",
+        feature = "worker-hydrate",
+        feature = "ssr",
+        feature = "worker"
+    ))]
     let (move_dec, move_inc) = {
         let move_dec = move |_| {
             change_status.dispatch(ChangeStatus {
