@@ -10,14 +10,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 axum = { version = "0.7", default-features = false, optional = true }
-leptos = { version = "0.7.2" }
-leptos_axum = { version = "0.7.2", default-features = false, optional = true }
-serde = "1.0.216"
-serde_json = { version = "1.0.134", optional = true }
-tokio = { version = "1.42.0", default-features = false, optional = true }
+leptos = { version = "0.7.4" }
+leptos_axum = { version = "0.7.4", default-features = false, optional = true }
+serde = "1.0.217"
+serde_json = { version = "1.0.137", optional = true }
+tokio = { version = "1.43.0", default-features = false, optional = true }
 tower-http = { version = "0.6.2", features = ["fs"], optional = true }
-uuid = { version = "1.11.0", features = ["v4", "js", "serde"] }
-wasm-bindgen = "0.2.99"
+uuid = { version = "1.12.1", features = ["v4", "js", "serde"] }
+wasm-bindgen = "0.2.100"
 tower = "0.5.2"
 tower-service = {  version = "0.3.2", optional = true }
 worker = { version = "0.5.0", default-features = false, optional = true }
